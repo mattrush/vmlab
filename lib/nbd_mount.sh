@@ -1,44 +1,62 @@
 #!/bin/bash
 
-SPECIFIER="$1"
+nbd_mount_usage () {
+usage: $0 options
+
+OPTIONS:
+  -h	Show this message
+  -l	List patrtitions
+  -p	Partition to mount
+EOF
+}
 
 nbd_mount () {
   # restrict action by run state
   [ -n "$runflag" ] && echo "Guest is running. Halt first" && return 1	
 
-	guest_RUNNING=`ps aux | grep qemu-kvm | grep $guest | grep -v grep`
-	if [ -n "$guest_RUNNING" ]; then
-		echo "Error: guest image is running, cannot mount"
-		return 1
-	fi
+  # handle options
+  while getopts ":hlp:" opt; do
+    case $opt in
+      h)
+        instantiate_usage
+        return 0
+        ;;
+      l)
+        listflag=1
+        ;;
+      p)
+        target=$OPTARG
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" >&2
+        return 1
+        ;;
+      :)
+        echo "Option -$OPTARG requires an argument." >&2
+        return 1
+        ;;
+    esac
+  done
 
-	if [ -z "$SPECIFIER" ]; then
-		echo "Error: image partition not specified"
-		return 1
-	fi
+  # restrict action by guest state
+  (ps aux |grep -v grep |grep qemu-kvm |grep $guest &>/dev/null)
+  [ "$?" == 0 ] && echo "Guest is running, cannot mount. Halt first" && return 1
 
-	unset MOUNTED HIGHEST_MOUNT NEXT_MOUNT 
-	
-	MOUNTED=( `ls /dev | grep nbd | awk '{print $1}' | grep -v p | rev | cut -d d -f 1 | rev` )
-	(HIGHEST_MOUNT=`IFS=$'\n'; echo "${MOUNTED[*]}" | sort -nr | head -n1`; export HIGHEST_MOUNT)
+  # make -t option mandatory
+  [ -z "$target" ] && echo "No partition specified. Cannot mount" && return 1
 
-	if [ -n "$HIGHEST_MOUNT" ]; then
-		NEXT_MOUNT="$HIGHEST_MOUNT" + 1
-	else
-		NEXT_MOUNT="0"
-	fi
+  # make sure the nbd module is loaded and correctly configured 
+  (lsmod |grep nbd) || modprobe nbd max_part=$mountpoints
 
-	MODULE_LOADED=`lsmod | grep nbd`
-	if [ -z "$MODULE_LOADED" ]; then
-		`modprobe nbd max_part=16`
-	fi
+  # get the lowest nbd device number available
+  mounted=( $(ls /dev |grep nbd |awk '{print $1}' |grep -v p |rev |cut -d d -f 1 |rev) )
+  lowest=$(IFS=$'\n'; echo "${mounted[*]}" |sort -n |head -n +1)
 
-	qemu-nbd -c /dev/nbd$NEXT_MOUNT "$imagepath/$guest.img"
-	mkdir -p "$mountpath/$guest"
-	mount /dev/nbd"$NEXT_MOUNT"p"$SPECIFIER" "$mountpath/$guest/"
+  # mount the disk
+  (qemu-nbd -c /dev/nbd$lowest "$imagepath/$guest.img")&
+  wait $!
+  mkdir -p "$mountpath/$guest"
+  mount /dev/nbd"$lowest"p"$target" "$mountpath/$guest/"
 
-	echo /dev/nbd"$NEXT_MOUNT"p"$SPECIFIER" > "$RUN/$guest.mount"
-	echo /dev/nbd"$NEXT_MOUNT" > "$RUN/$guest.nbd"
-
-	unset MOUNTED HIGHEST_MOUNT NEXT_MOUNT guest_RUNNING
+  return 0
 }

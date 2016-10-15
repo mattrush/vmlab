@@ -4,15 +4,20 @@ nbd_umount () {
   # restrict action by run state
   [ -n "$runflag" ] && echo "Guest is running. Halt first" && return 1	
 
-	UMOUNTEE=`cat $LOC/../run/$guest.mount`
-	if [ -z "$UMOUNTEE" ]; then
-		echo "Error: guest image not mounted"
-		return 1
-	fi
+  # make sure guest is mounted
+  (ps aux |grep -v grep |grep qemu-nbd |grep $guest |awk '{print $13}' &>/dev/null)
+  [ "$?" != 0 ] && echo "Guest image not mounted. Cannot unmount" && return 1
 
-	umount "$UMOUNTEE" && rm $LOC/../run/$guest.mount || echo "Error: unmount $UMOUNTEE failed"
-	qemu-nbd -d `cat $LOC/../run/$guest.nbd` && rm $LOC/../run/$guest.nbd || echo "Error: guest image nbd detach failed"
-	rmdir $LOC/../mnt/$guest/ || echo "Error: failed te remove guest image mount point"
+  # unmount the disk
+  umount "$mountpath/$guest"
+  [ "$?" != 0 ] && echo "Guest umount failed" && return 1
 
-	unset UMOUNTEE
+  # detatch the disk from nbd
+  qemu-nbd -d $(ps aux |grep -v grep |grep qemu-nbd |grep $guest |awk '{print $13}') &>/dev/null
+  [ "$?" != 0 ] && echo "Guest image nbd detach failed" && return 1
+
+  # clean up
+  rmdir $mountpath/$guest
+
+  return 0
 }

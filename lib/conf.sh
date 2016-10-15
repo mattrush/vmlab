@@ -20,6 +20,9 @@ OPTIONS:
   -p	Base port number (used to calculate vnc, websocket, spice, as well as serial console and Qemu monitor ports). -p '' generates one at random
   -d	Datadisks to mount -- can be used up to four times
   -c	Cryptlock is set to 1 to enable, and anything else to disable. Uses a gpg key to decrypt a guest image before boot end re-encrypt after halt. Defaults to 1.
+  -K	Path to a kernel you want to boot.
+  -A	Comma-delimited kernel boot parameter string.
+  -I	Path to an initrd image you want to boot.
 EOF
 }
 
@@ -31,7 +34,7 @@ vm_conf () {
   fi
 
   # handle options
-  while getopts ":hCvfu:o:m:s:n:b:w:H:p:a:d:c:" opt; do
+  while getopts ":hCvfu:o:m:s:n:b:w:H:p:a:d:c:K:A:I:" opt; do
     case $opt in
       h)
         conf_usage
@@ -84,6 +87,18 @@ vm_conf () {
       c)
         cryptlock="$OPTARG"
         ;;
+      K)
+        kernel="$OPTARG"
+	kernel=$(echo $kernel |sed -e 'sx/x\\/xg')
+        ;;
+      A)
+        append="$OPTARG"
+	append="$(echo $OPTARG |sed -e 'sx/x\\/xg')"
+        ;;
+      I)
+        initrd="$OPTARG"
+	initrd=$(echo $initrd |sed -e 'sx/x\\/xg')
+        ;;
       \?)
         echo "Invalid option: -$OPTARG" >&2
         return 1
@@ -124,4 +139,7 @@ vm_conf () {
   [ -n "$access" ] && sed -i -e "s/access=/access=$access/" $configurationpath/$guest.conf
   [ -n "$datadisks" ] && sed -i -e "s/datadisks=/datadisks=$datadisks/" $configurationpath/$guest.conf
   [ -n "$cryptlock" ] && sed -i -e "s/cryptlock=/cryptlock=$cryptlock/" $configurationpath/$guest.conf
+  [ -n "$kernel" ] && sed -i -e "s/kernel=/kernel=$kernel/" $configurationpath/$guest.conf
+  [ -n "$append" ] && sed -i -e "s/append=/append=$append/" $configurationpath/$guest.conf
+  [ -n "$initrd" ] && sed -i -e "s/initrd=/initrd=$initrd/" $configurationpath/$guest.conf
 }

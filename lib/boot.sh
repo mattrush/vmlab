@@ -15,6 +15,7 @@ boot () {
     -device "$nicdriver",netdev="$guest",mac="$mac" \
     -vga vmware \
     -usbdevice tablet \
+    -balloon virtio \
     -daemonize \
     -k en-us \
     $accessmethod \
