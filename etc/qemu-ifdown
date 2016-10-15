@@ -1,0 +1,14 @@
+#!/bin/sh
+set -x
+
+switch=br0
+
+if [ -n "$1" ]; then
+	# Remove tap0 interface from bridge
+	/sbin/brctl delif $switch $1
+else
+	echo "Error: no interface specified"
+	exit 1
+fi
+
+exit 0

@@ -1,0 +1,338 @@
+#!/bin/bash
+# by mrush
+
+# enable extended pattern matching
+shopt -s extglob dotglob
+
+# get mandatory positional arguments, or exit with error
+guest="$1";  [ -z "$guest" ] && echo "Guest or template name required" && exit 1
+action="$2"; [ -z "$action" ] && echo "Action name required" && exit 1
+
+# flag if guest is running
+( ps aux |grep -v grep |grep qemu-kvm |grep "$guest") > /dev/null 
+[ "$?" == 0 ] && runflag=1
+
+# get host metadata from either guestrc or vmweb
+if [ -d /etc/guestrc ]; then
+  source /etc/guestrc/host.conf
+elif [ -d /etc/vmweb ]; then
+  source /etc/vmweb/vmweb.conf  #FIXME get host metadata from db server, via this file
+fi
+
+# restrict $action based on state of guest
+
+# old guest
+if [ -e ${imagepath}/${guest}.img ]; then
+  case "$action" in
+    # only while halted (runflag not set)
+    conf|create|install|boot|nbd_mount|nbd_umount|recover|remove|templatize|wipe|cryptlock|cryptunlock)
+      #[ -n "$runflag" ] && echo "Guest is running. Halt first" && exit 1
+      ;;
+    # only while running (runflag _is_ set)
+    reboot|halt|kill|repid|replicate|reset|pause|resume|migrate|migrate_abort)
+      #[ -z "$runflag" ] && echo "Guest is halted. Boot first" && exit 1
+      ;;
+    # any time
+    shred)
+      ;;
+  esac
+fi
+
+# new guest. always halted (runflag not set)
+if [ -e ${imagepath}/new.${guest}.img ]; then
+  case "$action" in
+    conf|create|install|remove)
+      ;;
+    *)
+      echo "New guest. Install, (re)configure, (re)create, or remove" && exit 1
+  esac
+fi
+
+# no guest. always halted (runflag not set)
+if [ ! -e ${imagepath}/${guest}.img ] && [ ! -e ${imagepath}/new.${guest}.img ]; then
+  case "$action" in
+    create|conf|instantiate|unremove|destroy)
+      ;;
+    *)
+      echo "No such guest. Create, configure, instantiate, destroy, or unremove" && exit 1
+  esac
+fi
+
+# get guest metadata from either guestrc or vmweb
+if [ -d /etc/guestrc ]; then
+  # get guest's static  metadata
+  source "$configurationpath/$guest.conf" 2> /dev/null
+  source /etc/guestrc/defaults.conf
+  #test_and_set_defaults #FIXME see the call to this same function in lib/conf.sh 
+  # derive the guests's dynamaic metadata from it's static.
+  vnc="$port"
+  if [ -n "$vnc" ]; then
+    rvnc=$((5900+$port))
+    serialport=$(($rvnc+1))
+    monitorport=$(($rvnc+2))
+    #websocketport=$(($rvnc+3)) #FIXME delete unless i decide to allow guestrc to serve console via websocket
+    spiceport=$(($rvnc+4))
+    [ "$access" == "spice" ] && accessmethod='-spice ipv4,disable-ticketing,port='"$spiceport" || accessmethod='-vnc :'"$vnc"
+  fi
+elif [ -d /etc/vmweb ]; then
+  #FIXME get guest's static metadata from db server
+  # derive the guests's dynamaic metadata from it's static.
+  vnc=$port
+  if [ -n "$vnc" ]; then
+    rvnc=$((5900+$port))
+    serialport=$(($rvnc+1))
+    monitorport=$(($rvnc+2))
+    websocketport=$(($rvnc+3))
+    spiceport=$(($rvnc+4))
+    case "$access" in
+      'vnc')
+        accessmethod='-vnc :'"$vnc"
+        ;;
+      'ws')
+        accessmethod='-vnc :'"$vnc"',websocket='"$WS" #FIXME does qemu support only ws without a vnc port?
+        ;;
+      'spice')
+        accessmethod='-spice ipv4,disable-ticketing,port='"$spiceport"
+        ;;
+      *)
+        accessmethod='-vnc :'"$vnc"',websocket='"$WS"
+    esac
+  fi
+else
+  echo "No metadata management. Install vmweb or guestrc" && exit 1
+fi
+
+# source all the function files that are executable
+for i in $(find "$librarypath/" -type f -name "*.sh" -executable); do
+  source "$i"
+done
+
+# handle $action and pass from parameters as options to action functions
+shift
+shift
+case "$action" in
+  'boot')
+    boot "$@"
+    log_event
+    ;;
+  'create')
+    create "$@"
+    log_event
+    ;;
+  'conf')
+    vm_conf "$@"
+    log_event
+    ;;
+  'halt')
+    halt_ "$@" 
+    log_event
+    ;;
+  'install')
+    install_ "$@"
+    log_event
+    ;;
+  'kill')
+    kill_ "$@"
+    log_event
+    ;;
+  'reset')
+    reset "$@"
+    log_event
+    ;;
+  'repid')
+    repid "$@"
+    log_event
+    ;;
+  'reboot')
+    reboot_ "@"
+    #log_event
+    ;;
+  'rename')
+    rename "$@"
+    log_event
+    ;;
+  'status')
+    status_ "$@"
+    log_event
+    ;;
+  'validate')
+    validate "$@"
+    log_event
+    ;;
+  'clone')
+    clone "$@"
+    log_event
+    ;;
+  'instantiate')
+    instantiate "$@"
+    log_event
+    ;;
+  'templatize')
+    templatize "$@"
+    log_event
+    ;;
+  'remove')
+    remove "$@"
+    log_event
+    ;;
+  'unremove')
+    unremove "$@"
+    log_event
+    ;;
+  'destroy')
+    destroy "$@"
+    log_event
+    ;;
+  'pause')
+    pause "$@"
+    log_event
+    ;;
+  'resume')
+    resume "$@"
+    log_event
+    ;;
+  'replicate')
+    replicate "$@"
+    log_event
+    ;;
+  'balloon_mem')
+    balloon_mem "$@"
+    log_event
+    ;;
+  'balloon_cpu')
+    balloon_cpu "$@"
+    log_event
+    ;;
+  'balloon_disk')
+    balloon_disk "$@"
+    log_event
+    ;;
+  'balloon_net')
+    balloon_net "$@"
+    log_event
+    ;;
+  'balloon_data')
+    echo balloon_data "$@"
+    log_event
+    ;;
+  'coredump')
+    coredump "$@"
+    log_event
+    ;;
+  'get_logs')
+    get_logs "$@"
+    log_event
+    ;;
+  'get_screenshot')
+    get_screenshot "$@"
+    log_event
+    ;;
+  'virt_mem_dump')
+    virt_mem_dump "$@"
+    log_event
+    ;;
+  'migrate')
+    migrate "$@"
+    log_event
+    ;;
+  'migrate_cancel')
+    migrate_cancel "$@"
+    log_event
+    ;;
+  'snapshot_save')
+    snapshot_save "$@"
+    log_event
+    ;;
+  'snapshot_load')
+    snapshot_load "$@"
+    log_event
+    ;;
+  'snapshot_delete')
+    snapshot_delete "$@"
+    log_event
+    ;;
+  'btrfs_save')
+    btrfs_save "$@"
+    log_event
+    ;;
+  'btrfs_load')
+    btrfs_load "$@"
+    log_event
+    ;;
+  'btrfs_delete')
+    btrfs_delete "$@"
+    log_event
+    ;;
+  'filelevel_save')
+    filelevel_save "$@"
+    log_event
+    ;;
+  'filelevel_load')
+    filelevel_load "$@"
+    log_event
+    ;;
+  'filelevel_delete')
+    filelevel_delete "$@"
+    log_event
+    ;;
+  'info_commands')
+    info_commands "$@"
+    log_event
+    ;;
+  'logging_enable')
+    logging_enable "$@"
+    log_event
+    ;;
+  'logging_disable')
+    logging_disable "$@"
+    log_event
+    ;;
+  'metadata_edit')
+    metadata_edit "$@"
+    log_event
+    ;;
+  'recover')
+    recover "$@"
+    log_event
+    ;;
+  'enc_create')
+    enc_create "$@"
+    log_event
+    ;;
+  'nbd_mount')
+    nbd_mount "$@"
+    log_event
+    ;;
+  'nbd_umount')
+    nbd_umount "$@"
+    log_event
+    ;;
+  'lvm_mount')
+    lvm_mount "$@"
+    log_event
+    ;;
+  'lvm_umount')
+    lvm_umount "$@"
+    log_event
+    ;;
+  'lab_boot')
+    lab_boot "$@"
+    log_event
+    ;;
+  'lab_conf')
+    lab_conf "$@"
+    log_event
+    ;;
+  'lab_halt')
+    lab_halt "$@"
+    log_event
+    ;;
+  'lab_instantiate')
+    lab_instantiate "$@"
+    log_event
+    ;;
+  'lab_kill')
+    lab_kill "$@"
+    log_event
+    ;;
+esac
