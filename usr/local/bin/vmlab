@@ -12,9 +12,9 @@ action="$2"; [ -z "$action" ] && echo "Action name required" && exit 1
 ( ps aux |grep -v grep |grep qemu-kvm |grep "$guest.img") > /dev/null 
 [ "$?" == 0 ] && runflag=1
 
-# get host metadata from either guestrc or vmweb
-if [ -d /etc/guestrc ]; then
-  source /etc/guestrc/host.conf
+# get host metadata from either vmlab or vmweb
+if [ -d /etc/vmlab ]; then
+  source /etc/vmlab/host.conf
 elif [ -d /etc/vmweb ]; then
   source /etc/vmweb/vmweb.conf  #FIXME get host metadata from db server, via this file
 fi
@@ -58,11 +58,11 @@ if [ ! -e ${imagepath}/${guest}.img ] && [ ! -e ${imagepath}/new.${guest}.img ];
   esac
 fi
 
-# get guest metadata from either guestrc or vmweb
-if [ -d /etc/guestrc ]; then
+# get guest metadata from either vmlab or vmweb
+if [ -d /etc/vmlab ]; then
   # get guest's static  metadata
   source "$configurationpath/$guest.conf" 2> /dev/null
-  source /etc/guestrc/defaults.conf
+  source /etc/vmlab/defaults.conf
   #test_and_set_defaults #FIXME see the call to this same function in lib/conf.sh 
   # derive the guests's dynamaic metadata from it's static.
   vnc="$port"
@@ -70,7 +70,7 @@ if [ -d /etc/guestrc ]; then
     rvnc=$((5900+$port))
     serialport=$(($rvnc+1))
     monitorport=$(($rvnc+2))
-    #websocketport=$(($rvnc+3)) #FIXME delete unless i decide to allow guestrc to serve console via websocket
+    #websocketport=$(($rvnc+3)) #FIXME delete unless i decide to allow vmlab to serve console via websocket
     spiceport=$(($rvnc+4))
     [ "$access" == "spice" ] && accessmethod='-spice ipv4,disable-ticketing,port='"$spiceport" || accessmethod='-vnc :'"$vnc"
   fi
@@ -99,7 +99,7 @@ elif [ -d /etc/vmweb ]; then
     esac
   fi
 else
-  echo "No metadata management. Install vmweb or guestrc" && exit 1
+  echo "No metadata management. Install vmweb or do without" && exit 1
 fi
 
 # source all the function files that are executable

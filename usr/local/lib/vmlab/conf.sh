@@ -55,7 +55,7 @@ vm_conf () {
 	;;
       o)
         os="$OPTARG"
-	nicdriver=$(nic_depends_on_os) #FIXME this is a breakfix. this should aleady be getting set conditionaly by etc/guestrc/defaults.conf
+	nicdriver=$(nic_depends_on_os) #FIXME this is a breakfix. this should aleady be getting set conditionaly by etc/vmlab/defaults.conf
 	;;
       m)
         mem="$OPTARG" 

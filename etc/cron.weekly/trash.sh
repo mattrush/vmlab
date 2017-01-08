@@ -1,6 +1,6 @@
 #!/bin/bash
 shopt -s extglob dotglob || exit 1
-. /etc/guestrc/host.conf || exit 1
+. /etc/vmlab/host.conf || exit 1
 
 # remove temp files
 echo "Deleting vim temp files from manual edits to guest configuration files..."
@@ -8,7 +8,7 @@ echo "Deleting vim temp files from manual edits to guest configuration files..."
 #for i in "${looseends[@]}"; do
 #  rm $i
 #done
-rm /etc/guestrc/conf/!(*.conf)
+rm /etc/vmlab/conf/!(*.conf)
 echo -e "\n"
 
 # remove leftovers
@@ -29,7 +29,7 @@ for i in "${conflist[@]}"; do
     [ "${guestlist[$c]}" == "$i" ] && skip=1 && break
   done
   [ -n "$skip" ] && continue
-  conflist=( "${conflist[@]/$i}" ) && mv $configurationpath/?(*.)$i.conf /var/vmlab/trash/
+  conflist=( "${conflist[@]/$i}" ) && mv $configurationpath/?(*.)$i.conf /vmlab-data/removed/
 done
 
 # burn the trash

@@ -48,7 +48,7 @@ instantiate () {
 
   #create a default configuration file for the new guest
   (vmlab $guest conf -f)
-  [ -d /etc/guestrc ] && source "$configurationpath/$guest.conf" 2> /dev/null
+  [ -d /etc/vmlab ] && source "$configurationpath/$guest.conf" 2> /dev/null
 
   # copy the template into a guest
   cp "$templatepath/$template.conf" "$configurationpath/$guest.conf"
