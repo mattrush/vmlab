@@ -10,9 +10,9 @@ A simple way to manage and control virtual machines.
   - posix shell
   - ssh key-based auth
   - rsync over ssh
-  - vnc over ssh
+  - vnc over tls, with x509 auth
   - qemu
-  - git repo containing json text files (metadata)
+  - git repo containing json text files
 
 # Dependencies
 - Intel or AMD cpu supporting vt-x
@@ -26,24 +26,24 @@ A simple way to manage and control virtual machines.
 - Jshon
 - Jansson
 
-Note: If you want to run this on AMD processors, make sure to find and replace the kvm-intel module name. Unsupported but will probably work.
+Note: If you want to run this on AMD processors, make sure to find and replace the kvm-intel module name. This is probably trivial but I haven't tested it yet.
 
 # Design
-- Nodes sync data via rsync over ssh
+- Nodes sync metadata via rsync over ssh
+- Metadata is JSON, in text files, in a git repository
 - A central console uses ssh to control the nodes
-- It's just shell so you don't have to mess with $trendyLang or $crustyLang thus avoiding over-abstraction and over-complication, respectively
+- It's just shell. No messing with $trendyLang or $crustyLang
+- Security features are worth the slight increase in complexity (SPKI and x509)
 
 # Installation
 - Download the source
   - git clone https://github.com/nomasters/vmlab/vmlab.git
 - Generate a package for your platform
   - mkSlackpkg.sh for Slackware
-  - mkDeb.sh for Debian and Ubuntu
-  - mkFbsd.sh for FreeBSD
+  - mkDeb.sh for Debian, Kali, Ubuntu, etc.
 - Install the package
-  - slackpkg install vmlab-<version>_nomasters.txz
-  - 
-  - 
+  - slackpkg install vmlab-<version>_nomasters.txz for Slackware
+  - dpkg --install vmlab-<version>_nomasters.deb for Debian and Ubuntu
 - Create a user
   - grep -e "^vmlab:" /etc/passwd >/dev/null || umask=600 adduser -g nobody -h /dev/null -s /bin/false vmlab
 - Mount shared storage (or just populate /vlab-iso with your iso collection, if you don't need multiple hypervising hosts)
@@ -70,8 +70,10 @@ Note: If you want to run this on AMD processors, make sure to find and replace t
     - Rsync fragments of JSON text files over ssh
 - Add configuration support for AMD
 - Add a minimalist ruby web interface
-  - Ruby plays nicely with JSON
-  - Dancer minimal web framework exists
+  - Ruby supports JSON
+  - Dancer, Sinatra, and similar minimalist frameworks
 - Add package build scripts for other platforms
+  - mkFbsd.sh for FreeBSD
   - mkPkg.sh for Arch Linux
-  - mkRpm.sh for Fedora
+  - mkRpm.sh for CentOS, RHEL, SUSE, etc.
+  - mkFlat.sh for Fedora
