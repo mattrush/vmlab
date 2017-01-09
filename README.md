@@ -19,10 +19,12 @@ A simple way to manage and control virtual machines.
 - Kernel supporting kvm
 - Bash (to be replaced with ash 0.4.0)
 - Openssh
+- Openssl
 - Rsync
 - Git
 - Qemu
 - Jshon
+- Jansson
 
 Note: If you want to run this on AMD processors, make sure to find and replace the kvm-intel module name. Unsupported but will probably work.
 
