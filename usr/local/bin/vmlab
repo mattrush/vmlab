@@ -12,22 +12,6 @@ action="$2"; [ -z "$action" ] && echo "Action name required" && exit 1
 ( ps aux |grep -v grep |grep qemu-kvm |grep "$guest.img") > /dev/null 
 [ "$?" == 0 ] && runflag=1
 
-# guest constants
-source "$configurationpath/$guest.conf" 2> /dev/null
-source /etc/vmlab/defaults.conf
-#test_and_set_defaults # i hate this line
-
-# set guest variables from guest constants
-vnc="$port"
-if [ -n "$vnc" ]; then
-  rvnc=$((5900+$port))
-  serialport=$(($rvnc+1))
-  monitorport=$(($rvnc+2))
-  #websocketport=$(($rvnc+3)) # do not use websockets until audit
-  spiceport=$(($rvnc+4))
-  [ "$access" == "spice" ] && accessmethod='-spice ipv4,disable-ticketing,port='"$spiceport" || accessmethod='-vnc :'"$vnc"
-fi
-
 # host constants
 source /etc/vmlab/host.conf
 
@@ -68,6 +52,22 @@ if [ ! -e ${imagepath}/${guest}.img ] && [ ! -e ${imagepath}/new.${guest}.img ];
     *)
       echo "No such guest. Create, configure, instantiate, destroy, or unremove" && exit 1
   esac
+fi
+
+# guest constants
+source "$configurationpath/$guest.conf" 2> /dev/null
+source /etc/vmlab/defaults.conf
+#test_and_set_defaults # i hate this line
+
+# set guest variables from guest constants
+vnc="$port"
+if [ -n "$vnc" ]; then
+  rvnc=$((5900+$port))
+  serialport=$(($rvnc+1))
+  monitorport=$(($rvnc+2))
+  #websocketport=$(($rvnc+3)) # do not use websockets until audit
+  spiceport=$(($rvnc+4))
+  [ "$access" == "spice" ] && accessmethod='-spice ipv4,disable-ticketing,port='"$spiceport" || accessmethod='-vnc :'"$vnc"
 fi
 
 # source all the function files that are executable
