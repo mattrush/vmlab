@@ -9,7 +9,7 @@ install_ () {
   [ ! -e "$imagepath/new.$guest.img" ] && echo "Guest is not new. Cannot install" && return 1
 
   # if chroot directory doesn't exist, create it
-  [ ! -d "$chroot" ] && mkdir "$chroot"
+  [ ! -d "$chroot" ] && mkdir -p "$chroot"
 
   # boot guest to installation media
   qemu-kvm \

@@ -54,5 +54,8 @@ instantiate () {
   cp "$templatepath/$template.conf" "$configurationpath/$guest.conf"
   cp "$templatepath/$template.img" "$imagepath/$guest.img"
 
+  # set a random port and mac for the new instance
+  vmlab $guest conf -f -p '' -H '' -u ''
+
   return 0
 }

@@ -5,7 +5,7 @@ boot () {
   [ -n "$runflag" ] && echo "Guest is running. Halt first" && return 1
 	
   # create chroot dir if doesn't exist
-  [ ! -d "$chroot" ] && mkdir "$chroot"
+  [ ! -d "$chroot" ] && mkdir -p "$chroot"
 
   # boot the guest
   qemu-kvm \

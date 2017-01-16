@@ -6,7 +6,7 @@ recover () {
   [ -n "$runflag" ] && echo "Guest is running. Halt first" && return 1	
 
   # create chroot dir
-  [ ! -d "$chroot" ] && mkdir "$chroot"
+  [ ! -d "$chroot" ] && mkdir -p "$chroot"
 
   # boot the guest image to the install iso, for recovery
   qemu-kvm \
