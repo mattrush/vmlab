@@ -11,8 +11,8 @@ boot () {
   qemu-kvm \
     -hda "$imagepath/$guest".img \
     -m "$mem" \
-    -netdev tap,id="$uuid" \
-    -device "$nicdriver",netdev="$uuid",mac="$mac" \
+    -netdev tap,id="$lab.$uuid" \
+    -device "$nicdriver",netdev="$lab.$uuid",mac="$mac" \
     -vga vmware \
     -usbdevice tablet \
     -balloon virtio \
