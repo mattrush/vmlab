@@ -25,6 +25,7 @@ A simple way to manage and control virtual machines.
 - Qemu
 - Jshon
 - Jansson
+- Socat (to be replaced with nc)
 
 Note: If you want to run this on AMD processors, make sure to find and replace the kvm-intel module name. This is probably trivial but I haven't tested it yet.
 
