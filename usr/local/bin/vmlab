@@ -12,12 +12,24 @@ action="$2"; [ -z "$action" ] && echo "Action name required" && exit 1
 ( ps aux |grep -v grep |grep qemu-kvm |grep "$guest.img") > /dev/null 
 [ "$?" == 0 ] && runflag=1
 
-# get host metadata from either vmlab or vmweb
-if [ -d /etc/vmlab ]; then
-  source /etc/vmlab/host.conf
-elif [ -d /etc/vmweb ]; then
-  source /etc/vmweb/vmweb.conf  #FIXME get host metadata from db server, via this file
+# guest constants
+source "$configurationpath/$guest.conf" 2> /dev/null
+source /etc/vmlab/defaults.conf
+#test_and_set_defaults # i hate this line
+
+# set guest variables from guest constants
+vnc="$port"
+if [ -n "$vnc" ]; then
+  rvnc=$((5900+$port))
+  serialport=$(($rvnc+1))
+  monitorport=$(($rvnc+2))
+  #websocketport=$(($rvnc+3)) # do not use websockets until audit
+  spiceport=$(($rvnc+4))
+  [ "$access" == "spice" ] && accessmethod='-spice ipv4,disable-ticketing,port='"$spiceport" || accessmethod='-vnc :'"$vnc"
 fi
+
+# host constants
+source /etc/vmlab/host.conf
 
 # restrict $action based on state of guest
 
@@ -56,50 +68,6 @@ if [ ! -e ${imagepath}/${guest}.img ] && [ ! -e ${imagepath}/new.${guest}.img ];
     *)
       echo "No such guest. Create, configure, instantiate, destroy, or unremove" && exit 1
   esac
-fi
-
-# get guest metadata from either vmlab or vmweb
-if [ -d /etc/vmlab ]; then
-  # get guest's static  metadata
-  source "$configurationpath/$guest.conf" 2> /dev/null
-  source /etc/vmlab/defaults.conf
-  #test_and_set_defaults #FIXME see the call to this same function in lib/conf.sh 
-  # derive the guests's dynamaic metadata from it's static.
-  vnc="$port"
-  if [ -n "$vnc" ]; then
-    rvnc=$((5900+$port))
-    serialport=$(($rvnc+1))
-    monitorport=$(($rvnc+2))
-    #websocketport=$(($rvnc+3)) #FIXME delete unless i decide to allow vmlab to serve console via websocket
-    spiceport=$(($rvnc+4))
-    [ "$access" == "spice" ] && accessmethod='-spice ipv4,disable-ticketing,port='"$spiceport" || accessmethod='-vnc :'"$vnc"
-  fi
-elif [ -d /etc/vmweb ]; then
-  #FIXME get guest's static metadata from db server
-  # derive the guests's dynamaic metadata from it's static.
-  vnc=$port
-  if [ -n "$vnc" ]; then
-    rvnc=$((5900+$port))
-    serialport=$(($rvnc+1))
-    monitorport=$(($rvnc+2))
-    websocketport=$(($rvnc+3))
-    spiceport=$(($rvnc+4))
-    case "$access" in
-      'vnc')
-        accessmethod='-vnc :'"$vnc"
-        ;;
-      'ws')
-        accessmethod='-vnc :'"$vnc"',websocket='"$WS" #FIXME does qemu support only ws without a vnc port?
-        ;;
-      'spice')
-        accessmethod='-spice ipv4,disable-ticketing,port='"$spiceport"
-        ;;
-      *)
-        accessmethod='-vnc :'"$vnc"',websocket='"$WS"
-    esac
-  fi
-else
-  echo "No metadata management. Install vmweb or do without" && exit 1
 fi
 
 # source all the function files that are executable
