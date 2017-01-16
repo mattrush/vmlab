@@ -15,8 +15,8 @@ install_ () {
   qemu-kvm \
     -hda "$imagepath/new.$guest".img \
     -m "$mem" \
-    -device "$nicdriver",netdev="$guest",mac="$mac" \
-    -netdev tap,id="$guest" \
+    -device "$nicdriver",netdev="$uuid",mac="$mac" \
+    -netdev tap,id="$uuid" \
     -vga vmware \
     -usbdevice tablet \
     -daemonize \
