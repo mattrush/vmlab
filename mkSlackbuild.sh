@@ -1,7 +1,7 @@
 #!/bin/sh
 
 name="vmlab"
-ver="0.1.6"
+ver="0.1.7"
 arch="noarch"
 plvl="0"
 tag="mrush"
