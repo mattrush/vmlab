@@ -119,7 +119,7 @@ vm_conf () {
   unset verboseflag
 
   # if the guest's lab does not exist, create lab directory
-  [[ $guest ~= / ]] && echo lab yes
+  [[ $guest =~ / ]] && echo lab yes
   exit
 
   # restrict configuration when the guest is already configured and exists (not a new guest)
