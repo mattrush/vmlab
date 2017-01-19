@@ -13,6 +13,7 @@ OPTIONS:
   -o	Operating system or template name
   -m	Memory size in MB
   -s	Disk size in GB, for example "$SCRIPT_ID -s 10G"
+  -l	Lab name. Defaults to 'default'.
   -n	Network interface driver
   -b	Boot device for installation / rescue media
   -w	Upon receiving the halt api call, number of seconds to wait before issuing the kill api call
@@ -62,6 +63,9 @@ vm_conf () {
         ;;
       s)
         size="$OPTARG" 
+        ;;
+      l)
+        lab="$OPTARG" 
         ;;
       n)
         nicdriver="$OPTARG" 
@@ -114,6 +118,10 @@ vm_conf () {
   test_and_set_defaults
   unset verboseflag
 
+  # if the guest's lab does not exist, create lab directory
+  [[ $guest ~= / ]] && echo lab yes
+  exit
+
   # restrict configuration when the guest is already configured and exists (not a new guest)
   if [ -e "$imagepath/$guest.img" ]; then
     if [ -e "$configurationpath/$guest.conf" ]; then
@@ -131,6 +139,7 @@ vm_conf () {
   [ -n "$os" ] && sed -i -e "s/os=/os=$os/" $configurationpath/$guest.conf
   [ -n "$mem" ] && sed -i -e "s/mem=/mem=$mem/" $configurationpath/$guest.conf
   [ -n "$size" ] && sed -i -e "s/size=/size=$size/" $configurationpath/$guest.conf
+  [ -n "$lab" ] && sed -i -e "s/lab=/lab=$lab/" $configurationpath/$guest.conf
   [ -n "$nicdriver" ] && sed -i -e "s/nicdriver=/nicdriver=$nicdriver/" $configurationpath/$guest.conf
   [ -n "$bootdevice" ] && sed -i -e "s/bootdevice=/bootdevice=$bootdevice/" $configurationpath/$guest.conf
   [ -n "$wait_" ] && sed -i -e "s/wait=/wait=$wait_/" $configurationpath/$guest.conf

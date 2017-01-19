@@ -47,6 +47,10 @@ create () {
 
   # handle verbosity
   [ -z "$verboseflag" ] && verbosity=" > /dev/null"
+  
+  # if the guest's lab does not exist, create lab directory
+  [[ $guest ~= / ]] && echo lab yes
+  exit
 
   # don't overwrite non-blank disks, and require -f to recreate newly created disks
   if [ -e ${imagepath}/${guest}.img ]; then
