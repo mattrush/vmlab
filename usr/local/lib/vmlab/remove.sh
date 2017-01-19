@@ -31,7 +31,7 @@ remove () {
     echo y gn $gName echo l $lab g $guest
 
     # move guest files to trash to await deletion
-    mv -v $imagepath/?(new.)$guest.img "$trashpath/" > #&>/dev/null
+    mv -v $imagepath/?(new.)$guest.img "$trashpath/" #&>/dev/null
     mv -v $configurationpath/?(.*)$guest.conf "$trashpath/" #&>/dev/null
   fi
  }
