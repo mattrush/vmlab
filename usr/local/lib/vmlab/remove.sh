@@ -16,8 +16,8 @@ remove () {
     [ ! -e ${imagepath}/$lab/?(new.)${gName}.img ] && echo "Guest does not exist" && return 1
 
     mkdir -p $trashpath/$lab
-    mv -v "$imagepath/$lab/?(new.)$gName.img" "$trashpath/$lab/" &>/dev/null
-    mv -v "$configurationpath/$lab/?(.*)$gName.conf" "$trashpath/$lab/" &>/dev/null
+    mv -v $imagepath/$lab/?(new.)$gName.img $trashpath/$lab/ #&>/dev/null
+    mv -v $configurationpath/$lab/?(.*)$gName.conf $trashpath/$lab/ #&>/dev/null
 
     count=$(find $configurationpath/$lab $imagepath/$lab \! -name ".*" |wc -l)
     if [[ $count -eq 2 ]]; then 
