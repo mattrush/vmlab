@@ -12,6 +12,12 @@ action="$2"; [ -z "$action" ] && echo "Action name required" && exit 1
 ( ps aux |grep -v grep |grep qemu-kvm |grep "$guest.img") > /dev/null 
 [ "$?" == 0 ] && runflag=1
 
+# get lab and guest names if a lab is included in $guest
+if [[ $guest =~ / ]]; then
+  lab="$(echo $guest |rev |cut -d / -f2-)"
+  gName="$(echo $guest |rev |cut -d / -f1)"
+fi
+
 # host constants
 source /etc/vmlab/host.conf
 
@@ -35,7 +41,7 @@ if [ -e ${imagepath}/${guest}.img ]; then
 fi
 
 # new guest. always halted (runflag not set)
-if [ -e ${imagepath}/new.${guest}.img ]; then
+if [ -e ${imagepath}/$lab/new.${gName}.img ]; then
   case "$action" in
     conf|create|install|remove|pre-install)
       ;;
@@ -45,7 +51,7 @@ if [ -e ${imagepath}/new.${guest}.img ]; then
 fi
 
 # no guest. always halted (runflag not set)
-if [ ! -e ${imagepath}/${guest}.img ] && [ ! -e ${imagepath}/new.${guest}.img ]; then
+if [ ! -e ${imagepath}/${guest}.img ] && [ ! -e ${imagepath}/$lab/new.${gName}.img ]; then
   case "$action" in
     create|conf|instantiate|unremove|destroy)
       ;;

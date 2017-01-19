@@ -6,13 +6,14 @@ remove () {
   # restrict action by run state
   [ -n "$runflag" ] && echo "Guest is running. Halt first" && return 1	
 
-  # make sure there's a guest to remove, old or new
-  [ ! -e ${imagepath}/?(new.)${guest}.img ] && echo "Guest does not exist" && return 1
-
   # if the guest is part of a lab, place the guest .img and .conf with the lab folder in the $remove directory, and if there are no other guests in the same lab, remove the lab directories under /etc/vmlab/conf and /vmlab-data.
   if [[ $guest =~ / ]]; then
     lab="$(echo $guest |rev |cut -d / -f2- |rev)"
     gName="$(echo $guest |rev |cut -d / -f1 |rev)"
+    echo gn $gName echo l $lab
+
+    # make sure there's a guest to remove, old or new
+    [ ! -e ${imagepath}/$lab/?(new.)${gName}.img ] && echo "Guest does not exist" && return 1
 
     mkdir -p $trashpath/$lab
     mv -v "$imagepath/$lab/?(new.)$gName.img" "$trashpath/$lab/" &>/dev/null
