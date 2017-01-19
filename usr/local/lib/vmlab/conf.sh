@@ -119,8 +119,7 @@ vm_conf () {
   unset verboseflag
 
   # if the guest's lab does not exist, create lab directory
-  [[ $guest =~ / ]] && echo lab yes
-  exit
+  [[ $guest =~ / ]] && { lab=$(echo $guest |rev |cut -d / -f2- |rev); echo mkdir -p $configurationpath/$lab $imagepath/$lab }
 
   # restrict configuration when the guest is already configured and exists (not a new guest)
   if [ -e "$imagepath/$guest.img" ]; then
