@@ -49,17 +49,21 @@ create () {
   [ -z "$verboseflag" ] && verbosity=" > /dev/null"
   
   # if the guest's lab does not exist, create lab directory under /vmlab-data/
-  [[ $guest =~ / ]] && { lab="$(echo $guest |rev |cut -d / -f2- |rev)"; mkdir -p $imagepath/$lab; }
+  if [[ $guest =~ / ]]; then
+    lab="$(echo $guest |rev |cut -d / -f2- |rev)"
+    gName="$(echo $guest |rev |cut -d / -f1 |rev)"
+    mkdir -p $imagepath/$lab
+  fi
 
   # don't overwrite non-blank disks, and require -f to recreate newly created disks
   if [ -e ${imagepath}/${guest}.img ]; then
     echo "Create: guest already installed to disk. Use 'wipe' action to zero it out" && return 2
-  elif [ -e ${imagepath}/new.${guest}.img ]; then 
+  elif [ -e ${imagepath}/$lab/new.${gName}.img ]; then 
     [ -z "$forceflag" ] && echo "Create: new disk already exists. Use -f to force overwrite" && return 1
   fi
 
   # create the disk
-  verbosity="$(qemu-img create -f qcow2 ${imagepath}/new.${guest}.img $size)"
+  verbosity="$(qemu-img create -f qcow2 ${imagepath}/$lab/new.${gName}.img $size)"
   [ -n "$verboseflag" ] && echo $verbosity
   return 0
 }
