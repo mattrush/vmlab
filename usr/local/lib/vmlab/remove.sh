@@ -10,7 +10,8 @@ remove () {
   if [[ $guest =~ / ]]; then
     lab="$(echo $guest |rev |cut -d / -f2- |rev)"
     gName="$(echo $guest |rev |cut -d / -f1 |rev)"
-    echo gn $gName echo l $lab
+
+    echo x gn $gName echo l $lab g $guest
 
     # make sure there's a guest to remove, old or new
     [ ! -e ${imagepath}/$lab/?(new.)${gName}.img ] && echo "Guest does not exist" && return 1
@@ -23,10 +24,14 @@ remove () {
     if [[ $count -eq 2 ]]; then 
       rm -rf $configurationpath/$lab $imagepath/$lab
     fi
-    exit    
-  fi
+  else
+    # make sure there's a guest to remove, old or new
+    [ ! -e ${imagepath}/?(new.)${guest}.img ] && echo "Guest does not exist" && return 1
 
-  # move guest files to trash to await deletion
-  mv -v $imagepath/$lab/?(new.)$gName.img "$trashpath/" > /dev/null 2>&1
-  mv -v $configurationpath/$lab/?(.*)$gName.conf "$trashpath/" > /dev/null 2>&1
+    echo y gn $gName echo l $lab g $guest
+
+    # move guest files to trash to await deletion
+    mv -v $imagepath/?(new.)$guest.img "$trashpath/" > #&>/dev/null
+    mv -v $configurationpath/?(.*)$guest.conf "$trashpath/" #&>/dev/null
+  fi
  }

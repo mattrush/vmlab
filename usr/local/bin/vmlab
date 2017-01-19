@@ -51,7 +51,10 @@ if [ -e ${imagepath}/$lab/new.${gName}.img ]; then
 fi
 
 # no guest. always halted (runflag not set)
-if [ ! -e ${imagepath}/${guest}.img ] && [ ! -e ${imagepath}/$lab/new.${gName}.img ]; then
+if [ ! -e ${imagepath}/$lab/${gName}.img ] && \
+   [ ! -e ${imagepath}/$lab/new.${gName}.img ] && \
+   [ ! -e ${imagepath}/${guest}.img ] && \
+   [ ! -e ${imagepath}/new.${guest}.img ]; then
   case "$action" in
     create|conf|instantiate|unremove|destroy)
       ;;

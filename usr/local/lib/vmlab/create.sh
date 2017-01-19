@@ -63,7 +63,11 @@ create () {
   fi
 
   # create the disk
-  verbosity="$(qemu-img create -f qcow2 ${imagepath}/$lab/new.${gName}.img $size)"
+  if [[ -n $gName ]]; then
+    verbosity="$(qemu-img create -f qcow2 ${imagepath}/$lab/new.${gName}.img $size)"
+  else
+    verbosity="$(qemu-img create -f qcow2 ${imagepath}/new.${guest}.img $size)"
+  fi
   [ -n "$verboseflag" ] && echo $verbosity
   return 0
 }
