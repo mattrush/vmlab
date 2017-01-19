@@ -118,8 +118,8 @@ vm_conf () {
   test_and_set_defaults
   unset verboseflag
 
-  # if the guest's lab does not exist, create lab directory
-  [[ $guest =~ / ]] && { lab="$(echo $guest |rev |cut -d / -f2- |rev)"; echo mkdir -p $configurationpath/$lab $imagepath/$lab; }
+  # if the guest's lab does not exist, create lab directory under /etc/vmlab/conf/
+  [[ $guest =~ / ]] && { lab="$(echo $guest |rev |cut -d / -f2- |rev)"; mkdir -p $configurationpath/$lab; }
 
   # restrict configuration when the guest is already configured and exists (not a new guest)
   if [ -e "$imagepath/$guest.img" ]; then

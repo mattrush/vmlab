@@ -48,9 +48,8 @@ create () {
   # handle verbosity
   [ -z "$verboseflag" ] && verbosity=" > /dev/null"
   
-  # if the guest's lab does not exist, create lab directory
-  [[ $guest =~ / ]] && echo lab yes
-  exit
+  # if the guest's lab does not exist, create lab directory under /vmlab-data/
+  [[ $guest =~ / ]] && { lab="$(echo $guest |rev |cut -d / -f2- |rev)"; mkdir -p $imagepath/$lab; }
 
   # don't overwrite non-blank disks, and require -f to recreate newly created disks
   if [ -e ${imagepath}/${guest}.img ]; then
