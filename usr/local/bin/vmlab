@@ -14,8 +14,8 @@ action="$2"; [ -z "$action" ] && echo "Action name required" && exit 1
 
 # get lab and guest names if a lab is included in $guest
 if [[ $guest =~ / ]]; then
-  lab="$(echo $guest |rev |cut -d / -f2-)"
-  gName="$(echo $guest |rev |cut -d / -f1)"
+  lab="$(echo $guest |rev |cut -d / -f2- |rev)"
+  gName="$(echo $guest |rev |cut -d / -f1 |rev)"
 fi
 
 # host constants
