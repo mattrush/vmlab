@@ -8,11 +8,11 @@ install_ () {
   if [[ -n $lab ]]; then
     # make sure guest is new
     [ ! -e "$imagepath/$lab/new.$gName.img" ] && echo "Guest is not new. Cannot install" && return 1
-    qString='-hda "$imagepath/$lab/new.$gName".img \'
+    nString="$lab/new.$gName".img
   else
     # make sure guest is new
     [ ! -e "$imagepath/new.$guest.img" ] && echo "Guest is not new. Cannot install" && return 1
-    qString='-hda "$imagepath/new.$guest".img \'
+    nString="new.$guest".img
   fi
 
   # if chroot directory doesn't exist, create it
@@ -20,8 +20,7 @@ install_ () {
 
   # boot guest to installation media
   qemu-kvm \
-    "$qString"
-    -hda "$imagepath/new.$guest".img \
+    -hda "$nString" \
     -m "$mem" \
     -device "$nicdriver",netdev="$lab.$uuid",mac="$mac" \
     -netdev tap,id="$lab.$uuid" \
