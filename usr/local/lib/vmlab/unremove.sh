@@ -27,7 +27,8 @@ unremove () {
     # move guest files back in place
     mkdir -p $configurationpath/$lab $imagepath/$lab
     mv -v $trashpath/$lab/?(new.)$gName.img "$imagepath/$lab/"
-    mv -v $trashpath/$lab/?(.*)$guest.conf "$configurationpath/$lab/"
+    mv -v $trashpath/$lab/?(.*)$gName.conf "$configurationpath/$lab/"
+    rmdir $trashpath/$lab
   else
     # check that removed guest still exists in the trash
     if [ ! -e $trashpath/?(new.)$guest.img ]; then
