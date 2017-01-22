@@ -24,7 +24,7 @@ source /etc/vmlab/host.conf
 # restrict $action based on state of guest
 
 # old guest
-if [ -e ${imagepath}/${guest}.img ]; then
+if [ -e ${imagepath}/${guest}.img ] || [ -e $imagepath/$lab/$gName.img ]; then
   case "$action" in
     # only while halted (runflag not set)
     conf|create|install|boot|nbd_mount|nbd_umount|recover|remove|templatize|wipe|cryptlock|cryptunlock|pre-install)
