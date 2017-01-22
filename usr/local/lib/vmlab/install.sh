@@ -20,7 +20,7 @@ install_ () {
 
   # boot guest to installation media
   qemu-kvm \
-    -hda "$nString" \
+    -hda "$imagepath/$nString" \
     -m "$mem" \
     -device "$nicdriver",netdev="$lab.$uuid",mac="$mac" \
     -netdev tap,id="$lab.$uuid" \
@@ -38,10 +38,10 @@ install_ () {
     -"$bootdevice" "$isopath/$os" #-cpu pentium3
 
   # if success, rename guest image to indicate it's not new anymore
-  #(ps aux |grep -v grep |grep qemu-kvm |grep "$guest") && 
-  [[ -n $lab ]] && {
-    es=$?; [ "$es" == 0 ] && mv $imagepath/{new.,}$guest.img && return 0 || return 1
-  } || {
-    es=$?; [ "$es" == 0 ] && mv $imagepath/$lab/{new.,}$gName.img && return 0 || return 1
-  }
+  es=$?
+  if [[ -n $lab ]]; then
+    [ "$es" == 0 ] && { mv $imagepath/$lab/{new.,}$gName.img && return 0 || return 1; }
+  else
+    [ "$es" == 0 ] && { mv $imagepath/{new.,}$guest.img && return 0 || return 1; }
+  fi
 }
