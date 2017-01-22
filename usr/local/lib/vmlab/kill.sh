@@ -26,7 +26,7 @@ kill_ () {
         verboseflag=1
         ;;
       f)
-        (vmlab $guest repid)
+        (vmlab ?(new.)$guest repid)
         ;;
       \?)
         echo "Invalid option: -$OPTARG" >&2
