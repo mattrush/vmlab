@@ -4,10 +4,8 @@
 switch=br0
 
 if [ -n "$1" ]; then
-	/usr/sbin/tunctl -u `whoami` -t $1
 	/sbin/ip link set $1 up
-	sleep 0.5s
-	/sbin/brctl addif $switch $1
+	ovs-vsctl add-port $switch $1
 	exit 0
 else
 	echo "Error: no interface specified"

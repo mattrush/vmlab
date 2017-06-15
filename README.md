@@ -41,7 +41,6 @@ Note: If you want to run this on AMD processors, make sure to find and replace t
   - git clone https://github.com/nomasters/vmlab/vmlab.git
 - Generate a package for your platform
   - mkSlackpkg.sh for Slackware
-  - mkDeb.sh for Debian, Kali, Ubuntu, etc.
 - Install the package
   - slackpkg install vmlab-<version>_nomasters.txz for Slackware
   - dpkg --install vmlab-<version>_nomasters.deb for Debian and Ubuntu
@@ -74,6 +73,7 @@ Note: If you want to run this on AMD processors, make sure to find and replace t
   - Ruby supports JSON
   - Dancer, Sinatra, and similar minimalist frameworks
 - Add package build scripts for other platforms
+  - mkDeb.sh for Debian, Kali, Ubuntu, etc.
   - mkFbsd.sh for FreeBSD
   - mkPkg.sh for Arch Linux
   - mkRpm.sh for CentOS, RHEL, SUSE, etc.

@@ -1,319 +1,963 @@
 #!/bin/bash
+
+# v.sh, bourne again shell
+# a wrapper around qemu to simplify management of virtual machines
 # by mrush
+# m@root.dance
+# github.com/nomasters
 
-# enable extended pattern matching
-shopt -s extglob dotglob
+##############
+# functions
+##############
 
-# get mandatory positional arguments, or exit with error
-guest="$1";  [ -z "$guest" ] && echo "Guest or template name required" && exit 1
-action="$2"; [ -z "$action" ] && echo "Action name required" && exit 1
+escape_forwardslash () { # accepts a string as input. if the string contains a forwardslash, return the string with the forwardslash prepended by a backslash. otherwise, just return the string unchanged.
+  string="$1"
+  [[ $string =~ / ]] && echo "$string" |sed -e 's/\//\\\//g' || echo "$string"
+}
+forwardslash_to_period () { # accepts a string as input. if the string contains a forwardslash, convert it to a period.
+  string="$1"
+  [[ $string =~ / ]] && echo "$string" |tr '/' '.' || echo "$string"
+}
+nic_depends_on_os () { # determine guest os and set dufault nicdriver accordingly
+  if [[ ! $os =~ windows* ]]; then
+    echo virtio-net
+  else
+    echo rtl8139
+  fi
+}
 
-# flag if guest is running
-( ps aux |grep -v grep |grep qemu-kvm |grep "$guest.img") > /dev/null 
-[ "$?" == 0 ] && runflag=1
+# log functions
+log_event () { # log the previous event
+  rs=$?
+  [[ "$action" =~ /(destoyed|unremove)/g ]] && uuid=$saveuuid				# workaround for unremove and destroy actions
+  [ "$rs" == 0 ] && echo "$(date $dateformat): $action: $guest-$uuid $rs" 1>> $log	# log the event
+  [ "$rs" != 0 ] && echo "$(date $dateformat): $action: $guest-$uuid $rs" 1>> $error	# log any errors
+}
 
-# get lab and guest names if a lab is included in $guest
-if [[ $guest =~ / ]]; then
+# helper funcions
+empty? () { # return 1 if $1 (aka $targetdir) contains any non-hidden, regular files
+  targetdir="$1"
+  count="$(find $targetdir -type f \! -name ".*" |wc -l)"
+  { [[ $count -ge 1 ]] && return 1; } || return 0
+}
+reconf () {
+  conf? && {										# handle _re_ configure
+    [[ $labname != $oldlabname ]] && {							# handle labname restructuring
+      [[ $labname =~ ' ' ]] && labname="$defaultlabname"				# handle when labname contains or is a space. relocate to default
+      mkdir -p $configurationpath/$labname						# create new lab dir under $configurepath
+      mv -v $configurationpath/$oldlabname/$guest.conf $configurationpath/$labname/	# relocate guest .conf file to new lab dir under $configurepath
+      empty? "$configurationpath/$oldlabname" && { [[ -n $oldlabname ]] && [[ ! $oldlabname =~ ' ' ]] && rm -rf "$configurationpath/$oldlabname"; }	# remove old lab dir
+      exist? && {									# if a guest image exists, new or old, relocate it
+        mkdir -p $imagepath/$labname							# create new lab dir under $imagepath
+        str=''; new? && str='new.'
+        mv -v $imagepath/$oldlabname/$str$guest.img $imagepath/$labname/		# relocate guest .img file to new lab dir under $imagepath
+  	empty? "$imagepath/$oldlabname" && { [[ -n $oldlabname ]] && [[ ! $oldlabname =~ ' ' ]] && rm -rf "$imagepath/$oldlabname"; }	# remove old lab dir
+      }
+    }
+  }
+}
+
+# state check functions
+conf? () { # return 1 if guest does not have a .conf file
+  [[ -e $configurationpath/$lab/$guest.conf ]] && return 0
+}
+exist? () { # return 1 if guest doesn't exist
+  { [[ -e $imagepath/$lab/$guest.img ]] || [[ -e $imagepath/$lab/new.$guest.img ]]; } && return 0
+}
+new? () { # return 1 if guest is non-new
+  [[ -e $imagepath/$lab/new.$guest.img ]] && return 0
+}
+del? () { # return 1 if guest is not in $trashdir
+  { [[ -e $trashpath/$lab/$guest.img ]] || [[ -e $trashpath/$lab/new.$guest.img ]] || [[ -e $trashpath/$lab/$guest.conf ]]; } && return 0
+}
+up? () { # return 1 if guest is down
+  (ps aux |grep qemu-kvm |egrep "($imagepath[/]$lab[/]$guest[.]img|$imagepath[/]$lab[/]new[.]$guest[.]img)") > /dev/null
+}
+paused? () {
+  (echo "info status" | socat - unix:"$monsock" | grep paused)
+}
+migrating? () {
+  (echo "info migrate" | socat - unix:"$monsock" | grep 'status:')
+}
+
+# action functions
+v_boot () {
+  up? && echo "Guest is running, cannot $action" && return 1				# deny if running
+  new? && echo "Guest is new, use 'install' instead of boot" && return 1		# deny if new
+  [[ ! -d $chroot ]] && mkdir -p "$chroot"						# create chroot dir if it doesn't exist
+  # boot the guest
+  qemu-kvm \
+    -hda "$imagepath/$lab/$guest.img" \
+    -m "$mem" \
+    -netdev tap,id="$guest.$(forwardslash_to_period $lab)",script="/etc/qemu-ifup.ovs",downscript="/etc/qemu-ifdown.ovs" \
+    -device "$nicdriver",netdev="$guest.$(forwardslash_to_period $lab)",mac="$mac" \
+    -vga vmware \
+    -usbdevice tablet \
+    -balloon virtio \
+    -daemonize \
+    -k en-us \
+    $accessmethod \
+    -serial unix:"$sersock",server,nowait \
+    -monitor unix:"$monsock",server,nowait \
+    -enable-kvm \
+    -pidfile "$pidfile" \
+    -chroot "$chroot" \
+    -runas nobody
+    #-usbdevice host:1058:0820 \
+}
+v_rescue () { # boot guest to recovery media
+  up? && echo "Guest is running. Halt first" && return 1				# deny if running
+  new? && echo "Guest is new, use 'install' instead of rescue" && return 1		# deny if new
+  [[ ! -d $chroot ]] && mkdir -p "$chroot"						# create chroot dir if it doesn't exist
+  # boot guest from installation media / recovery media
+  qemu-kvm \
+    -hda "$imagepath/$lab/$guest.img" \
+    -m "$mem" \
+    -device "$nicdriver",netdev="$guest.$(forwardslash_to_period $lab)",mac="$mac" \
+    -netdev tap,id="$guest.$(forwardslash_to_period $lab)" \
+    -vga vmware \
+    -usbdevice tablet \
+    -daemonize \
+    -k en-us \
+    $accessmethod \
+    -serial unix:"$sersock",server,nowait \
+    -monitor unix:"$monsock",server,nowait \
+    -enable-kvm \
+    -pidfile "$pidfile" \
+    -chroot "$chroot" \
+    -runas nobody \
+    -boot d \
+    -"$bootdevice" "$isopath/$os"
+}
+v_install () { # install from iso or floppy onto a new guest
+  up? && echo "Guest is running, cannot $action" && return 1				# deny if running
+  new? || { echo "Guest is not new, use 'boot' instead of install" && return 1; }	# deny unless new
+  [[ ! -d $chroot ]] && mkdir -p "$chroot"						# create chroot dir if it doesn't exist
+  mv $imagepath/$lab/{new.,}$guest.img							# remove 'new.' guest image prefix
+  # boot guest from installation media
+  qemu-kvm \
+    -hda "$imagepath/$lab/$guest.img" \
+    -m "$mem" \
+    -device "$nicdriver",netdev="$guest.$(forwardslash_to_period $lab)",mac="$mac" \
+    -netdev tap,id="$guest.$(forwardslash_to_period $lab)" \
+    -vga vmware \
+    -usbdevice tablet \
+    -daemonize \
+    -k en-us \
+    $accessmethod \
+    -serial unix:"$sersock",server,nowait \
+    -monitor unix:"$monsock",server,nowait \
+    -enable-kvm \
+    -pidfile "$pidfile" \
+    -chroot "$chroot" \
+    -runas nobody \
+    -"$bootdevice" "$isopath/$os" #-cpu pentium3
+  [[ $? != 0 ]] && { mv $imagepath/$lab/{,new.}$guest.img && return 1; } || return 0	# if failure, restore 'new.' guest image prefix
+}
+v_preinstall () { # boot a newly built kernel & initrd, and pass the kernel boot prompt some options to enable more verbose debug output. borne of the infamous 'no init found' kernel error. see kernel source 'Documentatiton/init.txt'.
+  up? && echo "Guest is running. Halt first" && return 1				# deny if running
+  new? || echo "Guest is not new, use 'boot' instead of install" && return 1		# deny unless new
+  [[ ! -d $chroot ]] && mkdir -p "$chroot"						# create chroot dir if it doesn't exist
+  mv $imagepath/$lab/{new.,}$guest.img							# remove 'new.' guest image prefix
+  append="$(echo $append |sed -e 's/,/ /g')"						# format kernel boot append string by stripping all commas
+  # boot guest to installation media
+  qemu-kvm \
+    -hda "$imagepath/$lab/$guest.img" \
+    -m "$mem" \
+    -device "$nicdriver",netdev="$guest.$lab",mac="$mac" \
+    -netdev tap,id="$guest.$lab" \
+    -vga vmware \
+    -usbdevice tablet \
+    -daemonize \
+    -k en-us \
+    $accessmethod \
+    -serial unix:"$sersock",server,nowait \
+    -monitor unix:"$monsock",server,nowait \
+    -enable-kvm \
+    -pidfile "$pidfile" \
+    -chroot "$chroot" \
+    -runas nobody \
+    -kernel "$kernel" \
+    -initrd "$initrd" \
+    -append "$append" #\
+    #-"$bootdevice" "$isopath/$os"
+  [[ $? != 0 ]] && { mv $imagepath/$lab/{,new.}$guest.img && return 1; } || return 0	# if failure, restore 'new.' guest image prefix
+}
+v_conf_usage () {
+cat<<EOF
+usage: $0 options
+
+OPTIONS:
+  -h	Show this message
+  -C	Print the current guest metadata configuration file, and then exit
+  -v	Verbose output
+  -f	Force reconfigure a guest
+  -u	Specify a uuid to assign the guest. -u '' generates one at random
+  -o	Operating system or template name
+  -m	Memory size in MB
+  -s	Disk size in GB, for example "$SCRIPT_ID -s 10G"
+  -l	Lab name. Defaults to the value of \$defaultlabname.
+  -n	Network interface driver
+  -b	Boot device for installation / rescue media
+  -w	Upon receiving the halt api call, number of seconds to wait before issuing the kill api call
+  -H	Hardware mac address
+  -p	Base port number (used to calculate vnc or spice port). -p '' generates one at random
+  -d	Datadisks to mount -- can be used up to four times
+  -c	Cryptlock is set to 1 to enable, and anything else to disable. Uses a gpg key to decrypt a guest image before boot end re-encrypt after halt. Defaults to 1.
+  -K	Path to a kernel you want to boot.
+  -A	Comma-delimited kernel boot parameter string.
+  -I	Path to an initrd image you want to boot.
+EOF
+}
+v_conf () {
+  up? && { [[ ! $@ =~ (-C|-h|-f) ]] && echo "Guest is running, -h, -C, or -f to force re-configure" && return 1; }
+  override () { # this nested function implements a .conf file system which sets override-able defaults
+    #######
+    # guest template generation system, functions
+    #######
+    #
+    # $uuid specific
+    #
+    set_random_uuid () { # set a random uuid
+      random=$(uuidgen)
+    }
+    set_inuse_uuids () { # identify the collision set
+      for i in $(find $configurationpath/ -type f ! -name ".*" |grep .conf |xargs -I% grep uuid % |cut -d = -f 2 |sed "/^$/d"); do
+        inuse+=($i)
+      done
+    }
+    #
+    # $mac specific
+    #
+    newmac () { # generate a random mac
+      mac=$( printf 'FA:DE:%02X:%02X:%02X:%02X\n' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) )
+      #mac=$( printf '00:00:00:00:%02X:00\n' $((RANDOM%256)) ); #DEBUG increase probability of collision
+      echo $mac
+    }
+    set_random_mac () { # set a random mac 
+      random=$(newmac)
+    }
+    set_inuse_macs () { # identify all mac addresses currently in use on the system
+      inuse+=( $(ps aux |grep -v grep |grep qemu-kvm |awk '{print $19}' |cut -d = -f 3-) )
+    }
+    #
+    # $port specific
+    #
+    newport() { # generate a random port
+      floor=110
+      rp=$RANDOM
+      until (( $rp % 5 == 0 )) && [ $rp -ge $floor ]; do 
+        rp=$RANDOM
+      done
+      echo $rp
+    }
+    set_random_port () { # set a random port
+      random=$(newport)
+    }
+    set_inuse_ports () { # identify all ports currently in use on the system
+      for i in $(ps aux |grep -v grep |grep qemu-kvm |awk '{print $32}' |cut -d : -f 3- |cut -d , -f 1); do
+        i=$(( $i-2 ))
+        inuse+=($i)
+      done
+    }
+    #
+    # psuedo-anonymous functions
+    #
+    show_set () { # show set
+      echo $random test
+      for i in "${inuse[@]}"; do
+        echo "$i ${#inuse[@]}"
+      done
+      echo -e '\n'
+    }
+    check_unique () { # flag for mac address collision 
+      c=${#inuse[@]}
+      until [ $c == 0 ]; do
+        ((c--))
+        [ "$random" == "${inuse[$c]}" ] && collisionflag=1
+      done
+      return 0
+    }
+    #
+    # general functions
+    #
+    nic_depends_on_os () { # determine guest os and set dufault nicdriver accordingly
+      if [[ ! $os =~ windows* ]]; then
+        echo virtio-net
+      else
+        echo rtl8139
+      fi
+    }
+    set_defaults () { # set the defaults
+      [ -z "$uuid" ] && uuid="$randomuuid"
+      [ -z "$labname" ] && labname="$defaultlab"
+      [ -z "$os" ] && os="$defaultos"
+      [ -z "$mem" ] && mem="$defaultmem"
+      [ -z "$size" ] && size="$defaultsize"
+      [ -z "$nicdriver" ] && nicdriver=$(nic_depends_on_os)
+      [ -z "$bootdevice" ] && bootdevice='cdrom'
+      [ -z "$wait_" ] && wait_="$defaultwait"
+      [ -z "$mac" ] && mac="$randommac"
+      [ -z "$port" ] && port="$randomport"
+      [ -z "$access" ] && access='vnc'
+      [ -z "$datadisks" ] && datadisks=()
+      [ -z "$cryptlock" ] && cryptlock='1'
+      [ -z "$kernel" ] && kernel='none'
+      [ -z "$append" ] && append='none'
+      [ -z "$initrd" ] && initrd='none'
+    }
+    print_defaults () { # print the defaults
+      echo uuid "$uuid"
+      echo labname "$labname"
+      echo os "$os"
+      echo mem "$mem"
+      echo size "$size"
+      echo nicdriver "$nicdriver"
+      echo bootdevice "$bootdevice"
+      echo wait "$wait_"
+      echo mac "$mac"
+      echo port "$port"
+      echo access "$access"
+      echo datadisks "${datadisks[*]}"
+      echo cryptlock "$cryptlock"
+      echo kernel "$kernel"
+      echo append "$append"
+      echo initrd "$initrd"
+    }
+    test_and_set_defaults () { # generate runtime default guest metadata. the main template generation function
+      set_inuse_uuids									# find a unique uuid
+      while :; do
+        set_random_uuid
+        [ -n "$verboseflag" ] && show_set
+        check_unique
+        [ -z "$collisionflag" ] && randomuuid="$random" && break
+      done
+      unset inuse
+      set_inuse_macs									# find a unique mac address
+      while :; do
+        set_random_mac
+        [ -n "$verboseflag" ] && show_set
+        check_unique
+        [ -z "$collisionflag" ] && randommac="$random" && break
+      done
+      unset inuse
+      set_inuse_ports									# find a unique port within range
+      while :; do
+        set_random_port
+        [ -n "$verboseflag" ] && show_set
+        check_unique
+        [ -z "$collisionflag" ] && randomport="$random" && break
+      done
+      set_defaults									# do eet
+    }
+  }											# end nested function 'override()'
+  oldlabname="$labname"
+  unset labname										# allow $defaultlab to function in the absence of -l "$OPTARG"
+  while getopts ":hCvfu:o:m:s:l:n:b:w:H:p:a:d:c:K:A:I:" opt; do				# handle options
+    case $opt in
+      h)
+        v_conf_usage
+	exit 2
+	;;
+      C)
+      	cat $configurationpath/$lab/$guest.conf
+	exit 2
+	;;
+      v)
+        verboseflag=1
+        ;;
+      f)
+        forceflag=1
+	;;
+      u)
+        uuid="$OPTARG"
+	;;
+      o)
+        os="$OPTARG"
+	nicdriver=$(nic_depends_on_os)
+	;;
+      m)
+        mem="$OPTARG" 
+        ;;
+      s)
+        size="$OPTARG" 
+        ;;
+      l)
+        labname="$OPTARG"
+        labflag=1
+        ;;
+      n)
+        nicdriver="$OPTARG" 
+        ;;
+      b)
+        bootdevice="$OPTARG" 
+        ;;
+      w)
+        wait_="$OPTARG" 
+        ;;
+      H)
+        mac="$OPTARG" 
+        ;;
+      p)
+        port="$OPTARG" 
+        ;;
+      a)
+        access="$OPTARG"
+        ;;
+      d)
+        datadisks='('"$OPTARG"')'
+	;;
+      c)
+        cryptlock="$OPTARG"
+        ;;
+      K)
+        kernel="$OPTARG"
+	kernel=$(echo $kernel |sed -e 'sx/x\\/xg')
+        ;;
+      A)
+        append="$OPTARG"
+	append="$(echo $OPTARG |sed -e 'sx/x\\/xg')"
+        ;;
+      I)
+        initrd="$OPTARG"
+	initrd=$(echo $initrd |sed -e 'sx/x\\/xg')
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" >&2
+        return 1
+        ;;
+      :)
+        echo "Option -$OPTARG requires an argument." >&2
+        return 1
+        ;;
+    esac
+  done
+  [[ -z $labflag ]] && {						# handle relocation to default lab
+    [[ -z $labname ]] && {						# derive $labname from $lab, if the guest has a lab
+      [[ -n $lab ]] && {
+        labname="$lab"
+      }
+    }
+  }
+  override; test_and_set_defaults; unset verboseflag					# retest and set necessary defaults
+  mkdir -p "$configurationpath/$lab"							# if the guest's lab does not exist, create lab directory under $configurationpath
+  $(cp $configurationpath/.SKEL.conf $configurationpath/$lab/$guest.conf) &		# generate a skeleton configuration file
+  wait $! 
+  [ -n "$uuid" ] && sed -i -e "s/uuid=/uuid=$uuid/" $configurationpath/$lab/$guest.conf	# override default if set by options
+  [ -n "$os" ] && sed -i -e "s/os=/os=$os/" $configurationpath/$lab/$guest.conf
+  [ -n "$mem" ] && sed -i -e "s/mem=/mem=$mem/" $configurationpath/$lab/$guest.conf
+  [ -n "$size" ] && sed -i -e "s/size=/size=$size/" $configurationpath/$lab/$guest.conf
+  [ -n "$labname" ] && sed -i -e "s/labname=/labname=$(escape_forwardslash $labname)/" $configurationpath/$lab/$guest.conf
+  [ -n "$nicdriver" ] && sed -i -e "s/nicdriver=/nicdriver=$nicdriver/" $configurationpath/$lab/$guest.conf
+  [ -n "$bootdevice" ] && sed -i -e "s/bootdevice=/bootdevice=$bootdevice/" $configurationpath/$lab/$guest.conf
+  [ -n "$wait_" ] && sed -i -e "s/wait=/wait=$wait_/" $configurationpath/$lab/$guest.conf
+  [ -n "$mac" ] && sed -i -e "s/mac=/mac=$mac/" $configurationpath/$lab/$guest.conf
+  [ -n "$port" ] && sed -i -e "s/port=/port=$port/" $configurationpath/$lab/$guest.conf
+  [ -n "$access" ] && sed -i -e "s/access=/access=$access/" $configurationpath/$lab/$guest.conf
+  [ -n "$datadisks" ] && sed -i -e "s/datadisks=/datadisks=$datadisks/" $configurationpath/$lab/$guest.conf
+  [ -n "$cryptlock" ] && sed -i -e "s/cryptlock=/cryptlock=$cryptlock/" $configurationpath/$lab/$guest.conf
+  [ -n "$kernel" ] && sed -i -e "s/kernel=/kernel=$kernel/" $configurationpath/$lab/$guest.conf
+  [ -n "$append" ] && sed -i -e "s/append=/append=$append/" $configurationpath/$lab/$guest.conf
+  [ -n "$initrd" ] && sed -i -e "s/initrd=/initrd=$initrd/" $configurationpath/$lab/$guest.conf
+  reconf										# handle guest lab reconfiguration
+}
+v_create_usage () { # create a virtual root disk for a guest
+cat<<EOF
+usage: $0 options
+
+OPTIONS:
+  -s	Disk size in GB, for example "$SCRIPT_ID -s 10G"
+  -f	Force create. overwrites a new disk
+  -v	Verbose output
+  -h	Show this message
+EOF
+}
+v_create () {
+  up? && echo "Guest is running. Halt first" && return 1				# restrict action by run state
+  while getopts ":s:fvh" opt; do							# handle options
+    case $opt in
+      s)
+        size="$OPTARG"
+        ;;
+      f)
+        forceflag=1
+        ;;
+      v)
+        verboseflag=1
+        ;;
+      h)
+        v_create_usage
+        return 0
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" && return 1
+        ;;
+      :)
+        echo "Option -$OPTARG requires an argument." && return 1
+        ;;
+    esac
+  done
+  [[ -z $size ]] && echo "Create: -s option mandatory. Set a disk size" && return 1	# make '-s' mandatory
+  [[ -z $verboseflag ]] && verbosity=" > /dev/null"					# handle verbosity
+  [[ $lab != "default" ]] && mkdir -p $imagepath/$lab					# if guest's lab doesnt exist, create lab dir in /vmlab-data/
+  exist? && {
+    [[ -z $forceflag ]] && echo "Create: new disk already exists. Use -f to force overwrite" && return 1
+  }											# don't overwrite non-blank disks, require -f to re-create disks
+  verbosity="$(qemu-img create -f qcow2 $imagepath/$lab/new.$guest.img $size)"		# create the disk
+  [ -n "$verboseflag" ] && echo $verbosity
+  return 0
+}
+v_remove () { # move a guest to the trash
+  up? && echo "Guest is running. Halt first" && return 1					# deny if running
+  { exist? || conf?; } || { echo "Guest does not exist" && return 1; }
+  new? && str='new.'
+  mkdir -p $trashpath/$lab									# if guest has a lab, place .img .conf in lab folder in $trashpath
+  mv -v $configurationpath/$lab/$guest.conf $trashpath/$lab/ &>/dev/null
+  mv -v $imagepath/$lab/$str$guest.img $trashpath/$lab/ &>/dev/null
+  empty? "$configurationpath/$lab" && { [[ -n $lab ]] && rm -rf "$configurationpath/$lab"; }	# if no other guests in same lab, remove lab dirs in /etc/vmlab/conf /vmlab-data
+  empty? "$imagepath/$lab" && { [[ -n $lab ]] && rm -rf "$imagepath/$lab"; }			# if no other guests in same lab, remove lab dirs in /etc/vmlab/conf /vmlab-data
+}
+v_unremove () { # restore a removed guest
+  [ -e "$trashpath/$lab/$guest.conf" ] && source $trashpath/$lab/$guest.conf; saveuuid=$uuid	# save guest's uuid so we can pass it to log_event()
+  del? || {											# if guest isnt in $trashpath, grep log for destroy time
+    found=$(date -d @$(grep "$lab/$guest" $log |grep destroy | cut -d : -f 1) 2> /dev/null)	# grep logs for evidence the guest may have existed
+    [ -n "$found" ] && { echo Guest not in trash. A guest by that name was deleted at $found; } || echo "Guest not found. No record of deletion"
+    return 1
+  }
+  [[ -e $trashpath/$lab/new.$guest.img ]] && str='new.'
+  mkdir -p $configurationpath/$lab							# if guest in $trashpath, move guest files back in place
+  mv -v $trashpath/$lab/$guest.conf "$configurationpath/$lab/"
+  empty? "$trashpath/$lab" || mkdir -p $imagepath/$lab					# handle unremove-al of guests which had not yet had a disk image created
+  mv -v $trashpath/$lab/$str$guest.img "$imagepath/$lab/"
+  rmdir $trashpath/$lab									# if only guest in $trashpath/$lab, remove $lab dir
+}
+v_destroy () {
+  del? || { echo "Guest is not in trash. Remove first" && return 1; }			# deny if guest has not been removed
+  [ -e "$trashpath/$guest.conf" ] && source $trashpath/$guest.conf; saveuuid=$uuid	# save guest's uuid so we can pass it to log_event()
+  str=''; [[ -e $trashpath/$lab/new.$guest.img ]] && str='new.'				# handle new guests
+  rm -f $trashpath/$lab/$str$guest.img; rm -f $trashpath/$lab/$guest.conf		# delete the guest from $trashpath
+  count=$(find $trashpath/$lab \! -name ".*" |wc -l)
+  [[ $count -eq 1 ]] && rm -rf $trashpath/$lab						# if the only guest in the lab in trash, delete the directory
+}
+v_halt () { # gracefully shutdown a running guest if possible, via qemu monitor, otherwise, kill -9 and clean up
+  up? || { echo "Guest is already halted" && return 1; }				# deny unless running
+  paused? && echo "Guest is paused, cannot halt" && return 1				# deny if paused
+  migrating? && echo "Guest is migrating, cannot halt" && return 1			# deny if migrating
+  echo "system_powerdown" |socat - unix:"$monsock" |grep -v QEMU |grep -v qemu		# shutdown via qemu monitor
+  str=''; [[ -n $lab ]] && { str="$lab/"; }						# time-out then kill, for guests which dont respond to qemu monitor shutdown command
+  (vmlab $str$guest repid)
+  (
+  until [[ $wait == 0 ]]; do
+    ((wait--))
+    up? || return 0
+    sleep 1s
+  done
+  vmlab $str$guest kill && { 							# qemu monitor shutdown has failed. kill and clean up
+    rm -rf $chroot
+    rm $pidfile	&> /dev/null
+    rm $sersock	&> /dev/null
+    rm $monsock	&> /dev/null
+    [[ -n $lab ]] && rmdir $runpath/$lab &>/dev/null
+    return 0
+  } || return 1
+  )&
+}
+v_kill_usage () {
+usage: $0 options
+
+OPTIONS:
+  -h	Show this message
+  -v	Verbose output
+  -f	Force repid before kill
+EOF
+}
+v_kill () { # ungraceful. kill -9 and clean up
+  up? || { echo "Guest is already halted" && return 1; }					# deny unless running
+  paused? && { [[ $@ =~ -f ]] || { echo "Guest is paused, cannot kill" && return 1; }; }	# deny if paused
+  migrating? && { [[ $@ =~ -f ]] || { echo "Guest is migrating, cannot kill" && return 1; }; }	# deny if migrating
+  while getopts ":hvf" opt; do									# handle options
+    case $opt in
+      h)
+        v_kill_usage
+        return 0
+         ;;
+      v)
+        verboseflag=1
+        ;;
+      f)
+        (str=''; new? && str='new.'; vmlab $str$guest repid)
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" >&2
+        return 1
+        ;;
+      :)
+        echo "Option -$OPTARG requires an argument." >&2
+        return 1
+        ;;
+    esac
+  done
+  [[ ! -e $pidfile ]] && echo "No pidfile exists for guest. Use repid first or kill -f" && return 1	# test for a pidfile
+  kill -9 "$(cat $pidfile)" && {									# only clean up if kill succeeds
+    rm -rf "$chroot"
+    rm "$pidfile"
+    rm "$sersock"
+    rm "$monsock"
+    [[ -n $lab ]] && rmdir "$runpath/$lab" &>/dev/null
+    return 0
+  } || { echo "kill failed." && return 1; }
+}
+v_reboot () { # graceful restart
+  up? || { echo "Guest is halted, cannot reboot" && return 1; }				# deny unless running
+  paused? && echo "Guest is paused, cannot reboot" && return 1				# deny if paused
+  migrating? && echo "Guest is migrating, cannot reboot" && return 1			# deny if migrating
+  str=''; [[ -n $lab ]] && { str="$lab/"; }						# handle no-lab guests
+  vmlab $str$guest halt								# halt guest
+  (
+    r="0"
+    while [[ $r == 0 ]]; do
+      up?; r="$?"
+      sleep 0.25s
+    done
+    vmlab $str$guest boot								# once guest has halted, boot it
+  )&
+}
+v_reset () { # hard reset via qemu monitor. equivalent to hardware reset
+  up? || { echo "Guest is halted, cannot reset" && return 1; }				# deny unless running
+  paused? && echo "Guest is paused, cannot reset" && return 1				# deny if paused
+  migrating? && echo "Guest is migrating, cannot reset" && return 1			# deny if migrating
+  (echo system_reset | socat - unix:"$monsock" | grep -v QEMU | grep qemu &>/dev/null)	# reboot the guest via qemu monitor
+}
+v_pause () {
+  up? || { echo "Guest is halted, cannot pause" && return 1; }				# deny unless running
+  paused? && echo "Guest is already paused" && return 1					# deny if paused
+  echo "stop" | socat - unix:"$monsock" &>/dev/null					# pause emulation of guest
+}
+v_unpause () {
+  up? || { echo "Guest is halted, cannot unpause" && return 1; }			# deny unless running
+  paused? || { echo "Guest not paused, cannot unpause" && return 1; }			# deny unless paused
+  echo "c" | socat - unix:"$monsock" &>/dev/null					# unpause guest emulation
+}
+v_repid () { # (re-) create guest pid file
+  up? || { echo "Guest is halted, cannot repid" && return 1; }				# deny unless running
+  [[ ! -d $chroot ]] && mkdir -p "$chroot"						# create chroot dir if it doesn't exist
+  str=''; [[ -n $lab ]] && { str="$lab/"; }						# handle no-lab guests
+  ps aux | grep qemu | grep "$str$guest" | awk '{print $2}' > "$pidfile"		# regenerate pidfile
+}
+v_snap_usage () {
+cat<<EOF
+usage: $0 options
+
+OPTIONS:
+  -h	Show this message
+  -v	Verbose output
+  -l	List existing snapshots
+  -c	Create a snapshot
+  -d	Delete a snapshot
+  -a	Apply (revert) a snapshot
+  -i	Dump image info
+  -b	Dump image stack map for a given snapshot
+EOF
+}
+v_snap () {
+  # restrict action by run state. unless -C option is detected
+  [ -n "$1" ] && [[ "$1" =~ /-C/g ]]
+  if [ "$?" != 0 ]; then 
+    [ -n "$runflag" ] && echo "Guest is running. Halt first" && return 1
+  fi
+  while getopts ":hCvfu:o:m:s:n:b:w:H:p:a:d:c:K:A:I:" opt; do				# handle options
+    case $opt in
+      h)
+        v_snap_usage
+	exit 2
+	;;
+      C)
+        cat $configurationpath/$guest.conf
+	exit 2
+	;;
+      v)
+        verboseflag=1
+        ;;
+      f)
+        forceflag=1
+	;;
+      I)
+        initrd="$OPTARG"
+	initrd=$(echo $initrd |sed -e 'sx/x\\/xg')
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" >&2
+        return 1
+        ;;
+      :)
+        echo "Option -$OPTARG requires an argument." >&2
+        return 1
+        ;;
+    esac
+  done
+  # 
+  [ -n "$initrd" ] && sed -i -e "s/initrd=/initrd=$initrd/" $configurationpath/$guest.conf	# override default if set by options
+}
+v_revert () {
+  :
+}
+v_templatize_usage () {
+usage: $0 options
+
+OPTIONS:
+  -h	Show this message
+  -v	Verbose output
+  -t	Template name on which to base the guest
+EOF
+}
+v_templatize () { # create a template from a guest
+  up? && echo "Guest is running. Halt first" && return 1				# deny if running
+  while getopts ":hvt:" opt; do								# handle options
+    case $opt in
+      h)
+        v_templatize_usage
+        return 0
+        ;;
+      v)
+        verboseflag=1
+        ;;
+      t)
+        templatename=$OPTARG
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" >&2
+        return 1
+        ;;
+      :)
+        echo "Option -$OPTARG requires an argument." >&2
+        return 1
+        ;;
+    esac
+  done
+  [ -z "$templatename" ] && echo "Option -t is mandatory. Name the new template" && return 1					# make -t option mandatory
+  (ls $templatepath/$templatename.img &>/dev/null) && echo "Template name already in use. Choose another name" && return 1	# deny if template name already in use
+  cp "$imagepath/$lab/$guest.img" "$templatepath/$templatename.img" || return 1							# create template from the guest image
+  cp "$configurationpath/$lab/$guest.conf" "$templatepath/$templatename.conf" || return 1					# create template from the guest configuration
+  return 0
+}
+v_instantiate_usage () {
+usage: $0 options
+
+OPTIONS:
+  -h	Show this message
+  -v	Verbose output
+  -t	Template name on which to base the guest
+EOF
+}
+v_instantiate () { # create a guest from a template
+  (ls $imagepath/$lab/$guest.img &>/dev/null) && echo "Guest name already in use. Use a different name" && return 1	# deny if name "$lab/$guest" is already in use
+  while getopts ":hvt:" opt; do												# handle options
+    case $opt in
+      h)
+        v_instantiate_usage
+        return 0
+        ;;
+      v)
+        verboseflag=1
+        ;;
+      t)
+        template=$OPTARG
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" >&2
+        return 1
+        ;;
+      :)
+        echo "Option -$OPTARG requires an argument." >&2
+        return 1
+        ;;
+    esac
+  done
+  [ -z "$template" ] && echo "Option -t is mandatory. Cannot instantiate without a template" && return 1		# make -t option mandatory
+  (ls $templatepath/$template.img &>/dev/null)										# make sure the template exists
+  [ "$?" != 0 ] && echo "No such template, cannot instantiate" && return 1
+  [[ ! -d /etc/vmlab/conf/$lab ]] && mkdir -p "$configurationpath/$lab" &>/dev/null					# create lab dir in $configurationpath if it doesnt exist
+  [[ ! -d /vmlab-data/$lab ]] && mkdir -p "$imagepath/$lab" &>/dev/null							# create lab dir in $imagepath if it doesnt exist
+  cp "$templatepath/$template.conf" "$configurationpath/$lab/$guest.conf" 						# copy the template into a guest
+  cp "$templatepath/$template.img" "$imagepath/$lab/$guest.img"								# copy the template into a guest
+  str=''; [[ -n $lab ]] && { str="$lab/"; }										# handle no-lab guests
+  vmlab $str$guest conf -p '' -H '' -u '' -l "$lab"										# set a random port, mac, and uuid for the new instance
+  return 0
+}
+v_mount_usage () {
+usage: $0 options
+
+OPTIONS:
+  -h	Show this message
+  -l	List patrtitions
+  -p	Partition to mount
+EOF
+}
+v_mount () {
+  up? && echo "Guest is running, cannot mount" && return 1				# deny if running
+  while getopts ":hlp:" opt; do								# handle options
+    case $opt in
+      h)
+        v_mount_usage
+        return 0
+        ;;
+      l)
+        listflag=1
+        ;;
+      p)
+        partition=$OPTARG
+        ;;
+      \?)
+        echo "Invalid option: -$OPTARG" >&2
+        return 1
+        ;;
+      :)
+        echo "Option -$OPTARG requires an argument." >&2
+        return 1
+        ;;
+    esac
+  done
+  [ -z "$partition" ] && echo "Option -p is mandatory. Cannot mount without a partition" && return 1	# make -p option mandatory
+  { lsmod |grep nbd; } || modprobe nbd max_part=$mountpoints						# make sure the nbd module is loaded and correctly configured
+  mounted=( $(ls /dev |grep nbd |awk '{print $1}' |grep -v p |rev |cut -d d -f 1 |rev) )		# get the lowest nbd device number available
+  lowest=$(IFS=$'\n'; echo "${mounted[*]}" |sort -n |head -n +1)
+  (qemu-nbd -c /dev/nbd$lowest "$imagepath/$lab/$guest.img")&						# mount the disk
+  wait $!
+  mkdir -p "$mountpath"
+  mount /dev/nbd"$lowest"p"$partition" "$mountpath/"
+  return 0
+}
+v_umount () {
+  [ -n "$runflag" ] && echo "Guest is running. Halt first" && return 1					# restrict action by run state
+  (ps aux |grep -v grep |grep qemu-nbd |grep $guest |awk '{print $13}' &>/dev/null)			# make sure guest is mounted
+  [ "$?" != 0 ] && echo "Guest image not mounted. Cannot unmount" && return 1
+  umount "$mountpath/"											# unmount the disk
+  [ "$?" != 0 ] && echo "Guest umount failed" && return 1
+  str=''; [[ -n $lab ]] && { str="$lab/"; }								# handle no-lab guests
+  qemu-nbd -d $(ps aux |grep -v grep |grep qemu-nbd |grep $str$guest |awk '{print $13}') &>/dev/null	# detatch the disk from nbd
+  [ "$?" != 0 ] && echo "Guest image nbd detach failed" && return 1
+  rmdir "$mountpath/"											# clean up
+  return 0
+}
+
+##############
+# options
+##############
+
+[[ $1 == '-d' ]] && { set -x; debugflag=1; shift; }
+guest="$1";  [[ -z $guest ]] && echo "Guest or template name required" && exit 1	# mandatory positional options
+action="$2"; [[ -z $action ]] && echo "Action name required" && exit 1
+
+##############
+# variables
+##############
+
+[[ $guest =~ / ]] && {									# set $lab, if present within $1 (aka $guest)
   lab="$(echo $guest |rev |cut -d / -f2- |rev)"
-  gName="$(echo $guest |rev |cut -d / -f1 |rev)"
-fi
+  guest="$(echo $guest |rev |cut -d / -f1 |cut -d . -f2- |rev)"
+} || unset lab
 
-# host constants
-source /etc/vmlab/host.conf
-
-# restrict $action based on state of guest
-
-# old guest
-if [ -e ${imagepath}/${guest}.img ] || [ -e $imagepath/$lab/$gName.img ]; then
-  case "$action" in
-    # only while halted (runflag not set)
-    conf|create|install|boot|nbd_mount|nbd_umount|recover|remove|templatize|wipe|cryptlock|cryptunlock|pre-install)
-      #[ -n "$runflag" ] && echo "Guest is running. Halt first" && exit 1
-      ;;
-    # only while running (runflag _is_ set)
-    reboot|halt|kill|repid|replicate|reset|pause|resume|migrate|migrate_abort)
-      #[ -z "$runflag" ] && echo "Guest is halted. Boot first" && exit 1
-      ;;
-    # any time
-    shred)
-      ;;
-  esac
-fi
-
-# new guest. always halted (runflag not set)
-if [ -e ${imagepath}/$lab/new.${gName}.img ]; then
-  case "$action" in
-    conf|create|install|remove|pre-install)
-      ;;
-    *)
-      echo "New guest. Install, (re)configure, (re)create, or remove" && exit 1
-  esac
-fi
-
-# no guest. always halted (runflag not set)
-if [ ! -e ${imagepath}/$lab/${gName}.img ] && \
-   [ ! -e ${imagepath}/$lab/new.${gName}.img ] && \
-   [ ! -e ${imagepath}/${guest}.img ] && \
-   [ ! -e ${imagepath}/new.${guest}.img ]; then
-  case "$action" in
-    create|conf|instantiate|unremove|destroy)
-      ;;
-    *)
-      echo "No such guest. Create, configure, instantiate, destroy, or unremove" && exit 1
-  esac
-fi
-
-# guest constants
-source "$configurationpath/$guest.conf" 2> /dev/null
-source /etc/vmlab/defaults.conf
-#test_and_set_defaults # i hate this line
-
-# set guest variables from guest constants
-vnc="$port"
+# define actions
+declare -a actions; actions=(conf create boot halt kill remove unremove destroy install instantiate templatize reset reboot migrate unmigrate mount umount snap revert rescue pause unpause pre-install repid) #create conf halt install pre-install kill reset repid reboot rename clone instantiate templatize remove unremove destroy pause resume replicate balloon_mem balloon_cpu balloon_disk balloon_net balloon_data coredump get_logs get_screenshot virt_mem_dump migrate migrate_cancel snapshot_save revert recover nbd_mount nbd_umount lvm_mount lvm_umount
+multihost="no"										# multi-host-deployment configuration variables
+hc="localhost"
+host="localhost"									# host configuration variables
+dateformat="+%s"
+log="/var/log/vmlab/log"
+error="/var/log/vmlab/error"
+trashpath="/vmlab-data/removed"
+configurationpath="/etc/vmlab/conf"
+imagepath="/vmlab-data"
+isopath="/vmlab-iso"
+templatepath="/vmlab-tmpl"
+librarypath="/usr/local/lib/vmlab"
+runpath="/var/run/vmlab"
+chroot="$runpath/$lab/$guest"
+pidfile="$runpath/$lab/$guest.pid"
+mountpath="$runpath/$lab/$guest.mount"
+sersock="$runpath/$lab/$guest.s.sock"
+monsock="$runpath/$lab/$guest.m.sock"
+uuid="$(cat $configurationpath/$lab/$guest.conf |grep 'uuid=' |cut -d = -f2 )"
+defaultlab=''										# guest default configuration variables
+defaultos="slackware64-14.2"
+defaultmem="512M"
+defaultsize="20G"
+defaultwait="60"
+mountpoints="16"
+source "$configurationpath/$lab/$guest.conf" 2> /dev/null				# guest configuration variables
+vnc="$port"										# handle qemu's vnc port-numbering incongruency
 if [ -n "$vnc" ]; then
   rvnc=$((5900+$port))
-  serialport=$(($rvnc+1))
-  monitorport=$(($rvnc+2))
-  #websocketport=$(($rvnc+3)) # do not use websockets until audit
   spiceport=$(($rvnc+4))
   [ "$access" == "spice" ] && accessmethod='-spice ipv4,disable-ticketing,port='"$spiceport" || accessmethod='-vnc :'"$vnc"
 fi
 
-# source all the function files that are executable
-for i in $(find "$librarypath/" -type f -name "*.sh" -executable); do
-  source "$i"
-done
+##############
+# run control
+##############
 
-# handle $action and pass from parameters as options to action functions
-shift
-shift
-case "$action" in
-  'boot')
-    boot "$@"
+# handle states
+exist? && { 			# existant guest
+  new? && { 			# new guest
+    case "$action" in
+      conf|create|install|remove|pre-install)
+        ;;
+      destroy|unremove)
+	;;
+      *)
+        echo "New guest. Install, (re)configure, (re)create, or remove" && exit 1
+    esac
+  } || { 		  	# old guest
+    up? && { 			# running guest
+      case "$action" in
+        conf|reboot|halt|kill|repid|replicate|reset|pause|unpause|migrate|unmigrate)
+	  ;;
+  	*)
+	  echo "Guest is up, action \"$action\" denied" && exit 1
+      esac
+    } || { 			# halted guest
+      case "$action" in
+        conf|create|install|boot|mount|umount|rescue|remove|templatize|pre-install)
+          ;;
+        destroy|unremove|instantiate)
+	  ;;
+        *)
+	  echo "Guest is halted, action \"$action\" denied" && exit 1
+      esac
+    } 
+  }
+} || { 				# non-existant guest
+  del? && {			# removed guest
+    case "$action" in
+      unremove|destroy)
+        ;;
+      *)
+        echo "No such guest. Destroy, or unremove" && exit 1
+    esac
+  } || {			# truly non-existant
+    case "$action" in
+      create|conf|instantiate)
+        ;;
+    remove|unremove|destroy)
+        ;;
+      *)
+        echo "No such guest. Create, configure, or instantiate" && exit 1
+    esac
+  }
+}
+#pause?;	upause=$?
+#halt?;		halt=$?
+#snap?;		snap=$?
+#revert?;	revert=$?
+#migrate?;	migrate=$?
+#unmigrate?;	unmigrate=$?
+
+# handle actions
+shift; shift
+for a in "${actions[@]}"; do
+  [[ $a == $action ]] && {
+    v_$action "$@"
     log_event
-    ;;
-  'create')
-    create "$@"
-    log_event
-    ;;
-  'conf')
-    vm_conf "$@"
-    log_event
-    ;;
-  'halt')
-    halt_ "$@" 
-    log_event
-    ;;
-  'install')
-    install_ "$@"
-    log_event
-    ;;
-  'pre-install')
-    pre-install_ "$@"
-    log_event
-    ;;
-  'kill')
-    kill_ "$@"
-    log_event
-    ;;
-  'reset')
-    reset "$@"
-    log_event
-    ;;
-  'repid')
-    repid "$@"
-    log_event
-    ;;
-  'reboot')
-    reboot_ "@"
-    #log_event
-    ;;
-  'rename')
-    rename "$@"
-    log_event
-    ;;
-  'status')
-    status_ "$@"
-    log_event
-    ;;
-  'validate')
-    validate "$@"
-    log_event
-    ;;
-  'clone')
-    clone "$@"
-    log_event
-    ;;
-  'instantiate')
-    instantiate "$@"
-    log_event
-    ;;
-  'templatize')
-    templatize "$@"
-    log_event
-    ;;
-  'remove')
-    remove "$@"
-    log_event
-    ;;
-  'unremove')
-    unremove "$@"
-    log_event
-    ;;
-  'destroy')
-    destroy "$@"
-    log_event
-    ;;
-  'pause')
-    pause "$@"
-    log_event
-    ;;
-  'resume')
-    resume "$@"
-    log_event
-    ;;
-  'replicate')
-    replicate "$@"
-    log_event
-    ;;
-  'balloon_mem')
-    balloon_mem "$@"
-    log_event
-    ;;
-  'balloon_cpu')
-    balloon_cpu "$@"
-    log_event
-    ;;
-  'balloon_disk')
-    balloon_disk "$@"
-    log_event
-    ;;
-  'balloon_net')
-    balloon_net "$@"
-    log_event
-    ;;
-  'balloon_data')
-    echo balloon_data "$@"
-    log_event
-    ;;
-  'coredump')
-    coredump "$@"
-    log_event
-    ;;
-  'get_logs')
-    get_logs "$@"
-    log_event
-    ;;
-  'get_screenshot')
-    get_screenshot "$@"
-    log_event
-    ;;
-  'virt_mem_dump')
-    virt_mem_dump "$@"
-    log_event
-    ;;
-  'migrate')
-    migrate "$@"
-    log_event
-    ;;
-  'migrate_cancel')
-    migrate_cancel "$@"
-    log_event
-    ;;
-  'snapshot_save')
-    snapshot_save "$@"
-    log_event
-    ;;
-  'snapshot_load')
-    snapshot_load "$@"
-    log_event
-    ;;
-  'snapshot_delete')
-    snapshot_delete "$@"
-    log_event
-    ;;
-  'btrfs_save')
-    btrfs_save "$@"
-    log_event
-    ;;
-  'btrfs_load')
-    btrfs_load "$@"
-    log_event
-    ;;
-  'btrfs_delete')
-    btrfs_delete "$@"
-    log_event
-    ;;
-  'filelevel_save')
-    filelevel_save "$@"
-    log_event
-    ;;
-  'filelevel_load')
-    filelevel_load "$@"
-    log_event
-    ;;
-  'filelevel_delete')
-    filelevel_delete "$@"
-    log_event
-    ;;
-  'info_commands')
-    info_commands "$@"
-    log_event
-    ;;
-  'logging_enable')
-    logging_enable "$@"
-    log_event
-    ;;
-  'logging_disable')
-    logging_disable "$@"
-    log_event
-    ;;
-  'metadata_edit')
-    metadata_edit "$@"
-    log_event
-    ;;
-  'recover')
-    recover "$@"
-    log_event
-    ;;
-  'enc_create')
-    enc_create "$@"
-    log_event
-    ;;
-  'nbd_mount')
-    nbd_mount "$@"
-    log_event
-    ;;
-  'nbd_umount')
-    nbd_umount "$@"
-    log_event
-    ;;
-  'lvm_mount')
-    lvm_mount "$@"
-    log_event
-    ;;
-  'lvm_umount')
-    lvm_umount "$@"
-    log_event
-    ;;
-  'lab_boot')
-    lab_boot "$@"
-    log_event
-    ;;
-  'lab_conf')
-    lab_conf "$@"
-    log_event
-    ;;
-  'lab_halt')
-    lab_halt "$@"
-    log_event
-    ;;
-  'lab_instantiate')
-    lab_instantiate "$@"
-    log_event
-    ;;
-  'lab_kill')
-    lab_kill "$@"
-    log_event
-    ;;
-esac
+    break
+  }
+done
