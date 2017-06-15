@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# v.sh, bourne again shell
+# vmlab, bourne again shell
 # a wrapper around qemu to simplify management of virtual machines
 # by mrush
 # m@root.dance
-# github.com/nomasters
+# github.com/mattrush
 
 ##############
 # functions

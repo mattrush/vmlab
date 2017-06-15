@@ -38,7 +38,7 @@ Note: If you want to run this on AMD processors, make sure to find and replace t
 
 # Installation
 - Download the source
-  - git clone https://github.com/nomasters/vmlab/vmlab.git
+  - git clone https://github.com/mattrush/vmlab/vmlab.git
 - Generate a package for your platform
   - mkSlackpkg.sh for Slackware
 - Install the package
