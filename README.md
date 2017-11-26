@@ -1,6 +1,11 @@
 # vmlab
 A simple way to manage and control virtual machines.
 
+# Nota Bene
+This project has reached the limits of what Bash can reasonably be expected to do in this domain. I need to store state in a database and manage many physical and virtual machines. I doesn't seem right to do this in Bash so I'm forking this project and renaming to vmlab2, to implement a management layer in Ruby and rewriting the hypervisor shell wrapper scripts in Posix for better (planned) hypervisor compatibility with bhyve and vmm.
+
+You can look at my vmlab2 repo if you're interested.
+
 # Features
 - Uses the virtualization capabilities present in the kernel
 - Works fine on just a single laptop
