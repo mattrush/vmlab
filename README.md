@@ -1,12 +1,10 @@
 # vmlab
 A simple way to manage and control virtual machines.
 
-# End of project
-Bash is no longer the right tool for this job.
+# Future of the project
+This script works well on a laptop or a single server but in order to support multiple compute nodes and shared storage, I'm renaming this project to vmlab2, implementing it in Ruby, and re-writing the hypervisor wrappers in Posix shell for better compatibility with qemu/kvm, bhyve, and vmm.
 
-I'm renaming this project to vmlab2, implementing it in Ruby, and re-writing the hypervisor wrappers in Posix shell for better compatibility with bhyve and vmm.
-
-Development will continue at github.com/mattrush/vmlab2.
+Development will continue at github.com/mattrush/vmlab2. I'll also continue to improve this script as well.
 
 # Features
 - Uses the virtualization capabilities present in the kernel
